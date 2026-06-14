@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MedCare AI - Intelligent Medication Adherence Agent</title>
+  <link rel="stylesheet" href="src/index.css">
+  <!-- React, ReactDOM, Babel, and Lucide Icons via CDNs -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* Inline fallbacks in case index.css load is delayed or static mounts are direct */
+    .accessibility-toggle-bar {
+      display: flex;
+      gap: 0.5rem;
+      background: rgba(30, 41, 59, 0.5);
+      padding: 0.25rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .acc-toggle-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      padding: 0.25rem 0.5rem;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: bold;
+      border-radius: 4px;
+    }
+    .acc-toggle-btn.active {
+      background: var(--primary);
+      color: #0f172a;
+    }
+    .audio-player-container {
+      margin-top: 1rem;
+      background: rgba(20, 184, 166, 0.05);
+      border: 1px solid rgba(20, 184, 166, 0.2);
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    audio {
+      width: 100%;
+      height: 32px;
+    }
+    .pill-card-action {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .compliance-metric-card {
+      text-align: center;
+      padding: 1rem;
+      background: rgba(15, 23, 42, 0.3);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+    const API_BASE = "http://localhost:8000";
+
+    function App() {
+      // Configuration & Navigation States
+      const [activeTab, setActiveTab] = useState("dashboard");
+      const [patients, setPatients] = useState([]);
+      const [selectedPatientId, setSelectedPatientId] = useState("");
+      const [activePatient, setActivePatient] = useState(null);
+      const [todaySchedule, setTodaySchedule] = useState([]);
+      const [medications, setMedications] = useState([]);
+      const [adherenceSummary, setAdherenceSummary] = useState(null);
+      const [accessibilityScale, setAccessibilityScale] = useState("normal");
+      
+      // Audio playbacks
+      const [audioUrl, setAudioUrl] = useState("");
+      const [audioMsg, setAudioMsg] = useState("");
+
+      // Modals and Alerts
+      const [warningConflict, setWarningConflict] = useState(null);
+      const [notificationTriggered, setNotificationTriggered] = useState("");
+
+      // Forms
+      const [newMed, setNewMed] = useState({
+        name: "",
+        dosage: "",
+        frequency: "Once daily",
+        timing_constraint: "Morning",
+        override_safety: false
+      });
+
+      const [newPatient, setNewPatient] = useState({
+        name: "",
+        age: 65,
+        conditions: "",
+        language: "English",
+        timezone: "EST",
+        accessibility_needs: "None",
+        wake_time: "08:00",
+        sleep_time: "22:00"
+      });
+
+      const [missedRecovery, setMissedRecovery] = useState({
+        medName: "",
+        hoursLate: 2.0,
+        result: null
+      });
+
+      // Load initial patient list
+      useEffect(() => {
+        fetchPatients();
+      }, []);
+
+      // Trigger profile details reload on patient select
+      useEffect(() => {
+        if (selectedPatientId) {
+          fetchPatientDetails(selectedPatientId);
+          fetchTodaySchedule(selectedPatientId);
+          fetchMedications(selectedPatientId);
+          fetchAdherenceSummary(selectedPatientId);
+        }
+      }, [selectedPatientId]);
+
+      // Apply accessibility sizes class to html body
+      useEffect(() => {
+        const bodyClass = document.body.classList;
+        bodyClass.remove("accessibility-large", "accessibility-xl");
+        if (accessibilityScale === "large") bodyClass.add("accessibility-large");
+        if (accessibilityScale === "xl") bodyClass.add("accessibility-xl");
+      }, [accessibilityScale]);
+
+      const fetchPatients = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/patients`);
+          const data = await res.json();
+          setPatients(data);
+          if (data.length > 0 && !selectedPatientId) {
+            setSelectedPatientId(data[0].id.toString());
+          }
+        } catch (e) {
+          console.error("Failed to load patients", e);
+        }
+      };
+
+      const fetchPatientDetails = async (id) => {
+        try {
+          const res = await fetch(`${API_BASE}/api/patients/${id}`);
+          const data = await res.json();
+          setActivePatient(data);
+          if (data.accessibility_needs === "Voice Alerts") {
+            setAccessibilityScale("large");
+          } else {
+            setAccessibilityScale("normal");
+          }
+        } catch (e) {
+          console.error("Failed to fetch patient details", e);
+        }
+      };
+
+      const fetchTodaySchedule = async (id) => {
+        try {
+          const res = await fetch(`${API_BASE}/api/patients/${id}/schedule/today`);
+          const data = await res.json();
+          setTodaySchedule(data);
+        } catch (e) {
+          console.error("Failed to fetch schedules", e);
+        }
+      };
+
+      const fetchMedications = async (id) => {
+        try {
+          const res = await fetch(`${API_BASE}/api/patients/${id}/medications`);
+          const data = await res.json();
+          setMedications(data);
+        } catch (e) {
+          console.error("Failed to fetch meds", e);
+        }
+      };
+
+      const fetchAdherenceSummary = async (id) => {
+        try {
+          const res = await fetch(`${API_BASE}/api/patients/${id}/adherence/summary`);
+          const data = await res.json();
+          setAdherenceSummary(data);
+        } catch (e) {
+          console.error("Failed to fetch adherence summary", e);
+        }
+      };
+
+      // Add Medication Submission
+      const handleAddMedication = async (e) => {
+        e.preventDefault();
+        setWarningConflict(null);
+        try {
+          const res = await fetch(`${API_BASE}/api/medications`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              patient_id: parseInt(selectedPatientId),
+              name: newMed.name,
+              dosage: newMed.dosage,
+              frequency: newMed.frequency,
+              timing_constraint: newMed.timing_constraint,
+              override_safety: newMed.override_safety
+            })
+          });
+
+          if (res.status === 409) {
+            const errData = await res.json();
+            setWarningConflict({
+              conflicts: errData.detail.conflicts,
+              disclaimer: errData.detail.disclaimer
+            });
+            return;
+          }
+
+          if (!res.ok) throw new Error("Scheduling error");
+
+          // Reset Form and reload
+          setNewMed({
+            name: "",
+            dosage: "",
+            frequency: "Once daily",
+            timing_constraint: "Morning",
+            override_safety: false
+          });
+          fetchTodaySchedule(selectedPatientId);
+          fetchMedications(selectedPatientId);
+          fetchAdherenceSummary(selectedPatientId);
+          alert("Medication successfully scheduled with conflict-free offsets!");
+        } catch (err) {
+          console.error(err);
+          alert("Error adding medication.");
+        }
+      };
+
+      // Force Override scheduling
+      const handleOverrideConflict = () => {
+        setNewMed(prev => ({ ...prev, override_safety: true }));
+        alert("Safety override checked. Please submit the medication form again to schedule.");
+        setWarningConflict(null);
+      };
+
+      // Delete Medication
+      const handleDeleteMed = async (medId) => {
+        if (!confirm("Are you sure you want to delete this medication and its schedules?")) return;
+        try {
+          await fetch(`${API_BASE}/api/medications/${medId}`, { method: "DELETE" });
+          fetchMedications(selectedPatientId);
+          fetchTodaySchedule(selectedPatientId);
+          fetchAdherenceSummary(selectedPatientId);
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
+      // Add Patient Profile
+      const handleCreatePatient = async (e) => {
+        e.preventDefault();
+        try {
+          const res = await fetch(`${API_BASE}/api/patients`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(newPatient)
+          });
+          const data = await res.json();
+          setPatients(prev => [...prev, data]);
+          setSelectedPatientId(data.id.toString());
+          setActiveTab("dashboard");
+          alert("New patient onboarding completed!");
+        } catch (err) {
+          console.error(err);
+        }
+      };
+
+      // Log Adherence State (Taken / Missed / Late)
+      const handleLogAdherence = async (scheduleId, status, notes = "") => {
+        try {
+          await fetch(`${API_BASE}/api/adherence/log`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ schedule_id: scheduleId, status, notes })
+          });
+          fetchTodaySchedule(selectedPatientId);
+          fetchAdherenceSummary(selectedPatientId);
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
+      // Trigger reminder call simulator (Generates Voice + logs Twilio)
+      const handleTriggerReminder = async (scheduleId) => {
+        setNotificationTriggered("Processing AI reminder tone adjustment...");
+        setAudioUrl("");
+        try {
+          const res = await fetch(`${API_BASE}/api/schedules/${scheduleId}/trigger`, { method: "POST" });
+          const data = await res.json();
+          setNotificationTriggered(data.message_sent);
+          if (data.audio_url) {
+            setAudioUrl(`${API_BASE}${data.audio_url}`);
+          }
+        } catch (e) {
+          console.error(e);
+          setNotificationTriggered("Failed to send notification.");
+        }
+      };
+
+      // Missed Dose Recovery Plan Simulator
+      const handleMissedDoseRecovery = async (e) => {
+        e.preventDefault();
+        if (!missedRecovery.medName) return;
+        try {
+          const res = await fetch(
+            `${API_BASE}/api/patients/${selectedPatientId}/missed-dose-recovery?med_name=${encodeURIComponent(missedRecovery.medName)}&hours_late=${missedRecovery.hoursLate}`,
+            { method: "POST" }
+          );
+          const data = await res.json();
+          setMissedRecovery(prev => ({ ...prev, result: data }));
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
+      // Render adherence score badge styling
+      const getScoreClass = (rate) => {
+        if (rate >= 85) return "score-high";
+        if (rate >= 60) return "score-med";
+        return "score-low";
+      };
+
+      return (
+        <div className="app-container">
+          {/* Header Section */}
+          <header>
+            <div className="brand">
+              <span style={{ fontSize: "2rem" }}>🛡️</span>
+              <div>
+                <h1 style={{ fontSize: "1.5rem", fontWeight: "bold" }}>MedCare AI</h1>
+                <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Intelligent Adherence Agent</p>
+              </div>
+            </div>
+            
+            <div className="nav-links">
+              <button className={`nav-btn ${activeTab === "dashboard" ? "active" : ""}`} onClick={() => setActiveTab("dashboard")}>Dashboard</button>
+              <button className={`nav-btn ${activeTab === "medications" ? "active" : ""}`} onClick={() => setActiveTab("medications")}>Medications</button>
+              <button className={`nav-btn ${activeTab === "onboarding" ? "active" : ""}`} onClick={() => setActiveTab("onboarding")}>Onboard Patient</button>
+              <button className={`nav-btn ${activeTab === "analytics" ? "active" : ""}`} onClick={() => setActiveTab("analytics")}>Analytics</button>
+              <button className={`nav-btn ${activeTab === "settings" ? "active" : ""}`} onClick={() => setActiveTab("settings")}>Settings</button>
+            </div>
+
+            {/* Accessibility Quickly Sizable Panel */}
+            <div className="accessibility-toggle-bar">
+              <button className={`acc-toggle-btn ${accessibilityScale === "normal" ? "active" : ""}`} onClick={() => setAccessibilityScale("normal")}>A</button>
+              <button className={`acc-toggle-btn ${accessibilityScale === "large" ? "active" : ""}`} onClick={() => setAccessibilityScale("large")}>A+</button>
+              <button className={`acc-toggle-btn ${accessibilityScale === "xl" ? "active" : ""}`} onClick={() => setAccessibilityScale("xl")}>A++</button>
+            </div>
+          </header>
+
+          {/* Active Patient Bar */}
+          {activePatient && (
+            <div style={{ background: "rgba(30, 41, 59, 0.4)", padding: "1rem", borderRadius: "8px", border: "1px solid var(--border)", marginBottom: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <strong>Active Patient:</strong> {activePatient.name} ({activePatient.age} yo) | <strong>Conditions:</strong> {activePatient.conditions || "None"}
+              </div>
+              <div style={{ color: "var(--primary)", fontWeight: "bold" }}>
+                🎯 Preference: {activePatient.language} ({activePatient.timezone})
+              </div>
+            </div>
+          )}
+
+          {/* Clinical Safety warnings Modal Overlay */}
+          {warningConflict && (
+            <div className="warning-overlay">
+              <div className="warning-modal">
+                <div className="warning-header">
+                  <span>⚠️</span> CLINICAL DRUG INTERACTION DETECTED
+                </div>
+                <div className="warning-desc">
+                  {warningConflict.conflicts.map((c, i) => (
+                    <div key={i} style={{ marginBottom: "1rem" }}>
+                      <strong>Conflict:</strong> {c.medication_a} + {c.medication_b} ({c.severity} Severity)<br/>
+                      <p style={{ marginTop: "0.25rem", color: "var(--text-secondary)" }}>{c.description}</p>
+                    </div>
+                  ))}
+                </div>
+                <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "1.5rem", fontStyle: "italic" }}>
+                  {warningConflict.disclaimer}
+                </p>
+                <div style={{ display: "flex", gap: "1rem" }}>
+                  <button className="btn btn-danger" onClick={handleOverrideConflict}>Confirm Override (Physician Approved)</button>
+                  <button className="btn btn-secondary" onClick={() => setWarningConflict(null)}>Cancel and Revise</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Core Content Switching */}
+          
+          {/* TAB 1: DASHBOARD */}
+          {activeTab === "dashboard" && (
+            <div>
+              <div className="grid">
+                {/* Adherence Circular Score */}
+                <div className="card" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <h2>Adherence Rate</h2>
+                  {adherenceSummary ? (
+                    <div>
+                      <div className={`score-circle ${getScoreClass(adherenceSummary.adherence_rate)}`}>
+                        {adherenceSummary.adherence_rate}%
+                      </div>
+                      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "0.5rem", fontSize: "0.8rem", marginTop: "1rem" }}>
+                        <div className="compliance-metric-card">Taken: <strong>{adherenceSummary.taken_count}</strong></div>
+                        <div className="compliance-metric-card">Missed: <strong>{adherenceSummary.missed_count}</strong></div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p>Loading compliance metrics...</p>
+                  )}
+                </div>
+
+                {/* AI Notification Center */}
+                <div className="card">
+                  <h2>Empathetic Reminder Simulator</h2>
+                  <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", marginBottom: "1rem" }}>
+                    Select a schedule card to trigger our AI Agent. The engine shifts the notification tone (Margaret = gentle/empathetic, Vikram = direct/brief) dynamically!
+                  </p>
+                  {notificationTriggered ? (
+                    <div style={{ background: "rgba(30, 41, 59, 0.6)", padding: "1rem", borderRadius: "8px", borderLeft: "4px solid var(--primary)", fontSize: "1.1rem" }}>
+                      <strong>Generated Notification Msg:</strong>
+                      <p style={{ marginTop: "0.5rem", fontStyle: "italic" }}>"{notificationTriggered}"</p>
+                      {audioUrl && (
+                        <div className="audio-player-container">
+                          <strong>🎙️ Voice Alert (TTS):</strong>
+                          {audioUrl.endsWith(".txt") ? (
+                            <span style={{ fontSize: "0.9rem", color: "var(--warning)" }}>[TTS MOCKED IN OFFLINE LOGS]</span>
+                          ) : (
+                            <audio controls src={audioUrl}></audio>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: "center", padding: "2rem", color: "var(--text-secondary)", border: "2px dashed var(--border)", borderRadius: "8px" }}>
+                      Click "Trigger AI Reminder" on any scheduled medication below to test the agent dispatcher.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Today's Schedule Timeline */}
+              <div className="card">
+                <h2>Today's Scheduled Timeline</h2>
+                <div className="timeline-list">
+                  {todaySchedule.length === 0 ? (
+                    <p style={{ color: "var(--text-secondary)" }}>No medications scheduled for today. Add medications under the medications tab.</p>
+                  ) : (
+                    todaySchedule.map((item, idx) => (
+                      <div key={idx} className="timeline-item">
+                        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                          <span className="time-badge">{item.scheduled_time}</span>
+                          <div>
+                            <strong style={{ fontSize: "1.2rem" }}>{item.medication_name}</strong> - <span style={{ color: "var(--text-secondary)" }}>{item.dosage}</span>
+                            <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>Rule: {item.instructions}</div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
+                          <span className={`status-badge status-${item.status.toLowerCase()}`}>{item.status}</span>
+                          <div className="pill-card-action">
+                            <button className="btn btn-primary" style={{ padding: "0.25rem 0.75rem", fontSize: "0.9rem" }} onClick={() => handleLogAdherence(item.schedule_id, "Taken")}>Took Pill</button>
+                            <button className="btn btn-secondary" style={{ padding: "0.25rem 0.75rem", fontSize: "0.9rem" }} onClick={() => handleLogAdherence(item.schedule_id, "Late")}>Late</button>
+                            <button className="btn btn-secondary" style={{ padding: "0.25rem 0.5rem", fontSize: "0.9rem", background: "rgba(20, 184, 166, 0.1)", color: "var(--primary)" }} onClick={() => handleTriggerReminder(item.schedule_id)}>Trigger AI Reminder</button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Recovery Agent Module */}
+              <div className="card" style={{ marginTop: "2rem" }}>
+                <h2>Missed-Dose Recovery Coach</h2>
+                <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", marginBottom: "1.5rem" }}>
+                  If a dose is missed, enter the hours late. The engine runs a half-life safety window check and the AI handles the recovery messaging!
+                </p>
+                <form onSubmit={handleMissedDoseRecovery} style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <div className="form-group" style={{ flex: 1, minWidth: "200px", marginBottom: 0 }}>
+                    <label>Medication Name</label>
+                    <input type="text" placeholder="e.g. Warfarin" value={missedRecovery.medName} onChange={(e) => setMissedRecovery({ ...missedRecovery, medName: e.target.value })} required />
+                  </div>
+                  <div className="form-group" style={{ width: "150px", marginBottom: 0 }}>
+                    <label>Hours Late</label>
+                    <input type="number" step="0.5" min="0.5" value={missedRecovery.hoursLate} onChange={(e) => setMissedRecovery({ ...missedRecovery, hoursLate: parseFloat(e.target.value) })} required />
+                  </div>
+                  <button className="btn btn-primary" type="submit">Ask Recovery Coach</button>
+                </form>
+
+                {missedRecovery.result && (
+                  <div style={{ marginTop: "1.5rem", padding: "1rem", background: "rgba(30, 41, 59, 0.6)", borderRadius: "8px", borderLeft: "4px solid var(--warning)" }}>
+                    <h4 style={{ color: var(--warning) }}>Clinical Advice: {missedRecovery.result.action_required}</h4>
+                    <p style={{ marginTop: "0.5rem", fontStyle: "italic" }}>"{missedRecovery.result.recovery_message}"</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: MEDICATIONS */}
+          {activeTab === "medications" && (
+            <div className="grid" style={{ gridTemplateColumns: "1fr 2fr", alignItems: "start" }}>
+              {/* Add Med Form */}
+              <div className="card">
+                <h2>Add Medication</h2>
+                <form onSubmit={handleAddMedication} style={{ marginTop: "1rem" }}>
+                  <div className="form-group">
+                    <label>Medication Name</label>
+                    <input type="text" placeholder="e.g. Ibuprofen" value={newMed.name} onChange={(e) => setNewMed({ ...newMed, name: e.target.value })} required />
+                  </div>
+                  <div className="form-group">
+                    <label>Dosage</label>
+                    <input type="text" placeholder="e.g. 400mg" value={newMed.dosage} onChange={(e) => setNewMed({ ...newMed, dosage: e.target.value })} required />
+                  </div>
+                  <div className="form-group">
+                    <label>Frequency</label>
+                    <select value={newMed.frequency} onChange={(e) => setNewMed({ ...newMed, frequency: e.target.value })}>
+                      <option>Once daily</option>
+                      <option>Twice daily</option>
+                      <option>Three times daily</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Timing Rules</label>
+                    <select value={newMed.timing_constraint} onChange={(e) => setNewMed({ ...newMed, timing_constraint: e.target.value })}>
+                      <option>Morning</option>
+                      <option>With meals</option>
+                      <option>Before meals</option>
+                      <option>Afternoon</option>
+                      <option>Evening</option>
+                      <option>Before bed</option>
+                      <option>None</option>
+                    </select>
+                  </div>
+                  <button className="btn btn-primary" type="submit" style={{ width: "100%" }}>Schedule Medication</button>
+                </form>
+              </div>
+
+              {/* Medication List */}
+              <div className="card">
+                <h2>Medication List</h2>
+                <div style={{ marginTop: "1rem" }}>
+                  {medications.length === 0 ? (
+                    <p style={{ color: "var(--text-secondary)" }}>No medications registered yet for this patient profile.</p>
+                  ) : (
+                    <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
+                      <thead>
+                        <tr style={{ borderBottom: "2px solid var(--border)", color: "var(--text-secondary)" }}>
+                          <th style={{ padding: "0.75rem" }}>Name</th>
+                          <th style={{ padding: "0.75rem" }}>Dosage</th>
+                          <th style={{ padding: "0.75rem" }}>Frequency</th>
+                          <th style={{ padding: "0.75rem" }}>Constraint</th>
+                          <th style={{ padding: "0.75rem" }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {medications.map((m, idx) => (
+                          <tr key={idx} style={{ borderBottom: "1px solid var(--border)" }}>
+                            <td style={{ padding: "0.75rem", fontWeight: "bold" }}>{m.name}</td>
+                            <td style={{ padding: "0.75rem" }}>{m.dosage}</td>
+                            <td style={{ padding: "0.75rem" }}>{m.frequency}</td>
+                            <td style={{ padding: "0.75rem" }}>{m.timing_constraint}</td>
+                            <td style={{ padding: "0.75rem" }}>
+                              <button className="btn btn-danger" style={{ padding: "0.25rem 0.5rem", fontSize: "0.85rem", minHeight: "36px" }} onClick={() => handleDeleteMed(m.id)}>Remove</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: ONBOARDING */}
+          {activeTab === "onboarding" && (
+            <div className="card" style={{ maxWidth: "800px", margin: "0 auto" }}>
+              <h2>Patient Profile Onboarding Form</h2>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", marginBottom: "1.5rem" }}>
+                Add new patient profiles. Wake and sleep times are factored in by the scheduling engine to prevent conflicts.
+              </p>
+              <form onSubmit={handleCreatePatient}>
+                <div className="grid">
+                  <div className="form-group">
+                    <label>Patient Full Name</label>
+                    <input type="text" placeholder="e.g. Jane Doe" value={newPatient.name} onChange={(e) => setNewPatient({ ...newPatient, name: e.target.value })} required />
+                  </div>
+                  <div className="form-group">
+                    <label>Age</label>
+                    <input type="number" value={newPatient.age} onChange={(e) => setNewPatient({ ...newPatient, age: parseInt(e.target.value) })} required />
+                  </div>
+                  <div className="form-group">
+                    <label>Pre-existing Conditions</label>
+                    <input type="text" placeholder="e.g. Diabetes, Hypertension" value={newPatient.conditions} onChange={(e) => setNewPatient({ ...newPatient, conditions: e.target.value })} />
+                  </div>
+                  <div className="form-group">
+                    <label>Language Preference</label>
+                    <select value={newPatient.language} onChange={(e) => setNewPatient({ ...newPatient, language: e.target.value })}>
+                      <option>English</option>
+                      <option>Spanish</option>
+                      <option>Hindi</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Timezone</label>
+                    <input type="text" value={newPatient.timezone} onChange={(e) => setNewPatient({ ...newPatient, timezone: e.target.value })} required />
+                  </div>
+                  <div className="form-group">
+                    <label>Accessibility Option</label>
+                    <select value={newPatient.accessibility_needs} onChange={(e) => setNewPatient({ ...newPatient, accessibility_needs: e.target.value })}>
+                      <option>None</option>
+                      <option>Voice Alerts</option>
+                      <option>Large Font</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Wake Time (HH:MM)</label>
+                    <input type="text" value={newPatient.wake_time} onChange={(e) => setNewPatient({ ...newPatient, wake_time: e.target.value })} required />
+                  </div>
+                  <div className="form-group">
+                    <label>Sleep Time (HH:MM)</label>
+                    <input type="text" value={newPatient.sleep_time} onChange={(e) => setNewPatient({ ...newPatient, sleep_time: e.target.value })} required />
+                  </div>
+                </div>
+                <button className="btn btn-primary" type="submit" style={{ width: "100%", marginTop: "1rem" }}>Complete Onboarding</button>
+              </form>
+            </div>
+          )}
+
+          {/* TAB 4: ANALYTICS */}
+          {activeTab === "analytics" && (
+            <div className="card">
+              <h2>Adherence Compliance Analytics</h2>
+              <div style={{ marginTop: "1.5rem" }}>
+                {adherenceSummary ? (
+                  <div>
+                    <div className="grid" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+                      <div className="compliance-metric-card" style={{ borderTop: "4px solid var(--primary)" }}>
+                        <h3>{adherenceSummary.adherence_rate}%</h3>
+                        <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>Intake Score</p>
+                      </div>
+                      <div className="compliance-metric-card" style={{ borderTop: "4px solid var(--success)" }}>
+                        <h3>{adherenceSummary.taken_count}</h3>
+                        <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>Taken slots</p>
+                      </div>
+                      <div className="compliance-metric-card" style={{ borderTop: "4px solid var(--warning)" }}>
+                        <h3>{adherenceSummary.late_count}</h3>
+                        <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>Late slots</p>
+                      </div>
+                      <div className="compliance-metric-card" style={{ borderTop: "4px solid var(--danger)" }}>
+                        <h3>{adherenceSummary.missed_count}</h3>
+                        <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>Missed slots</p>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: "2rem", background: "rgba(15, 23, 42, 0.4)", padding: "1.5rem", borderRadius: "8px", border: "1px solid var(--border)" }}>
+                      <h3>Historical Compliance Analytics Report</h3>
+                      <p style={{ color: "var(--text-secondary)", fontSize: "0.95rem", marginTop: "0.5rem" }}>
+                        Patient has logged a total of <strong>{adherenceSummary.total_doses}</strong> schedule intervals. 
+                        Compliance shows a steady curve with primary adherence rates of <strong>{adherenceSummary.adherence_rate}%</strong>. 
+                        No secondary escalations to caregivers have been triggered today.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p>Loading summary logs...</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: SETTINGS */}
+          {activeTab === "settings" && (
+            <div className="card" style={{ maxWidth: "600px", margin: "0 auto" }}>
+              <h2>System Settings</h2>
+              
+              <div className="form-group" style={{ marginTop: "1.5rem" }}>
+                <label>Active Demo Patient Profile</label>
+                <select value={selectedPatientId} onChange={(e) => setSelectedPatientId(e.target.value)}>
+                  {patients.map((p, idx) => (
+                    <option key={idx} value={p.id}>{p.name} (Age: {p.age})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group" style={{ marginTop: "1.5rem" }}>
+                <label>Accessibility UI Scaling</label>
+                <select value={accessibilityScale} onChange={(e) => setAccessibilityScale(e.target.value)}>
+                  <option value="normal">Normal Text (16px base)</option>
+                  <option value="large">Large Text (20px base) - Recommended for Seniors</option>
+                  <option value="xl">Extra Large Text (24px base)</option>
+                </select>
+              </div>
+
+              <div style={{ marginTop: "2rem", background: "rgba(30, 41, 59, 0.6)", padding: "1rem", borderRadius: "8px", border: "1px solid var(--border)", fontSize: "0.85rem" }}>
+                <strong>Demo Notes:</strong> Set database files under `.env`. To populate mock database data, run the seed script: <code>python seed.py</code> in the backend directory.
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const container = document.getElementById('root');
+    const root = ReactDOM.createRoot(container);
+    root.render(<App />);
+  </script>
+</body>
+</html>

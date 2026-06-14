@@ -1,0 +1,47 @@
+# Virtual Environment
+venv/
+ENV/
+.venv/
+
+# Environment Variables & Secrets (HIPAA Alignment)
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+*.env
+
+# SQLite local databases
+backend/medcare.db
+backend/medcare.db-journal
+
+# Temporary TTS voice files (HIPAA Alignment)
+backend/static/*.mp3
+backend/static/*.txt
+!backend/static/index.html
+!backend/static/src/
+
+# Python Cache & Testing
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.cache/
+.coverage
+htmlcov/
+*.log
+
+# Node dependencies & Vite builds
+node_modules/
+frontend/node_modules/
+dist/
+dist-ssr/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# System Files
+.DS_Store
+Thumbs.db
