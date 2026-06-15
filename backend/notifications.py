@@ -70,7 +70,7 @@ def send_email(to_email: str, subject: str, body: str) -> bool:
     logger.info(f"\n--- [MOCK SMTP EMAIL] --- \nTo: {to_email}\nSubject: {subject}\nBody: {body}\n-------------------------\n")
     return True
 
-def generate_voice_alert(message: str, output_dir: str, filename: str) -> str:
+def generate_voice_alert(message: str, output_dir: str, filename: str, language: str = "English") -> str:
     """
     Uses gTTS to generate a Text-to-Speech audio reminder (.mp3).
     Falls back gracefully if offline.
@@ -81,16 +81,26 @@ def generate_voice_alert(message: str, output_dir: str, filename: str) -> str:
     os.makedirs(output_dir, exist_ok=True)
     file_path = os.path.join(output_dir, filename)
 
+    # Determine gTTS language code based on user preference
+    lang_code = 'en'
+    lang_lower = language.lower()
+    if 'span' in lang_lower:
+        lang_code = 'es'
+    elif 'hind' in lang_lower:
+        lang_code = 'hi'
+    elif 'fren' in lang_lower:
+        lang_code = 'fr'
+
     try:
         # pyrefly: ignore [missing-import]
         from gtts import gTTS
-        tts = gTTS(text=message, lang='en', slow=False)
+        tts = gTTS(text=message, lang=lang_code, slow=False)
         tts.save(file_path)
-        logger.info(f"Voice alert audio file saved at {file_path}")
+        logger.info(f"Voice alert audio file ({lang_code}) saved at {file_path}")
         return file_path
     except Exception as e:
         logger.warning(f"Could not generate TTS file (likely offline): {e}. Creating a mock file flag.")
         # Create a dummy text file to simulate output creation if offline
         with open(file_path.replace(".mp3", ".txt"), "w") as f:
-            f.write(f"[MOCK TTS AUDIO]: {message}")
+            f.write(f"[MOCK TTS AUDIO] ({lang_code}): {message}")
         return file_path.replace(".mp3", ".txt")

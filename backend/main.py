@@ -438,7 +438,8 @@ def trigger_reminder_dispatch(schedule_id: int, db: Session = Depends(get_db)):
         audio_path = notifications.generate_voice_alert(
             message=personalized_message,
             output_dir=STATIC_DIR,
-            filename=audio_filename
+            filename=audio_filename,
+            language=patient.language
         )
 
         # Save notification log
