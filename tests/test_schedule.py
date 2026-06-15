@@ -6,6 +6,7 @@ backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../backe
 if backend_path not in sys.path:
     sys.path.append(backend_path)
 
+# pyrefly: ignore [missing-import]
 from schedule_engine import schedule_medication, time_to_minutes, minutes_to_time
 
 def test_time_conversion():

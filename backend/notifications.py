@@ -18,6 +18,7 @@ def send_sms(to_phone: str, message: str) -> bool:
     
     if account_sid and auth_token and from_number:
         try:
+            # pyrefly: ignore [missing-import]
             from twilio.rest import Client
             client = Client(account_sid, auth_token)
             client.messages.create(
@@ -81,6 +82,7 @@ def generate_voice_alert(message: str, output_dir: str, filename: str) -> str:
     file_path = os.path.join(output_dir, filename)
 
     try:
+        # pyrefly: ignore [missing-import]
         from gtts import gTTS
         tts = gTTS(text=message, lang='en', slow=False)
         tts.save(file_path)

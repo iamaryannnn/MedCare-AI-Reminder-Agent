@@ -1,16 +1,24 @@
 import os
 from datetime import datetime, date
+# pyrefly: ignore [missing-import]
 from fastapi import FastAPI, Depends, HTTPException, status
+# pyrefly: ignore [missing-import]
 from fastapi.middleware.cors import CORSMiddleware
+# pyrefly: ignore [missing-import]
 from fastapi.staticfiles import StaticFiles
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
 
 # OpenTelemetry Imports
+# pyrefly: ignore [missing-import]
 from opentelemetry import trace
+# pyrefly: ignore [missing-import]
 from opentelemetry.sdk.trace import TracerProvider
+# pyrefly: ignore [missing-import]
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+# pyrefly: ignore [missing-import]
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 # MedCare AI Engine Modules
@@ -74,10 +82,11 @@ class PatientResponse(PatientCreate):
 
 class MedicationCreate(BaseModel):
     patient_id: int
-    name: str
-    dosage: str
-    frequency: str  # e.g., "Once daily", "Twice daily", "Three times daily"
-    timing_constraint: str  # e.g., "With meals", "Before bed", "Morning", "None"
+    name: Optional[str] = None
+    dosage: Optional[str] = None
+    frequency: Optional[str] = None  # e.g., "Once daily", "Twice daily", "Three times daily"
+    timing_constraint: Optional[str] = None  # e.g., "With meals", "Before bed", "Morning", "None"
+    raw_nlp_text: Optional[str] = None
     override_safety: Optional[bool] = False
 
 class MedicationResponse(BaseModel):
@@ -176,6 +185,17 @@ def add_medication(med: MedicationCreate, db: Session = Depends(get_db)):
         patient = db.query(models.Patient).filter(models.Patient.id == med.patient_id).first()
         if not patient:
             raise HTTPException(status_code=404, detail="Patient not found")
+
+        # Conversational NLP parsing if text is supplied
+        if med.raw_nlp_text:
+            extracted = ai_agent.parse_medication_nlp(med.raw_nlp_text)
+            med.name = extracted.get("name")
+            med.dosage = extracted.get("dosage")
+            med.frequency = extracted.get("frequency")
+            med.timing_constraint = extracted.get("timing_constraint")
+
+        if not med.name or not med.dosage:
+            raise HTTPException(status_code=400, detail="Could not extract medication details from text.")
 
         # 1. Run Clinical Safety Interaction Checks
         existing_meds = db.query(models.Medication).filter(models.Medication.patient_id == med.patient_id).all()

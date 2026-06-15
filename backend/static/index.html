@@ -88,11 +88,13 @@
       const [notificationTriggered, setNotificationTriggered] = useState("");
 
       // Forms
+      const [isConversational, setIsConversational] = useState(false);
       const [newMed, setNewMed] = useState({
         name: "",
         dosage: "",
         frequency: "Once daily",
         timing_constraint: "Morning",
+        raw_nlp_text: "",
         override_safety: false
       });
 
@@ -204,10 +206,11 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               patient_id: parseInt(selectedPatientId),
-              name: newMed.name,
-              dosage: newMed.dosage,
-              frequency: newMed.frequency,
-              timing_constraint: newMed.timing_constraint,
+              name: isConversational ? null : newMed.name,
+              dosage: isConversational ? null : newMed.dosage,
+              frequency: isConversational ? null : newMed.frequency,
+              timing_constraint: isConversational ? null : newMed.timing_constraint,
+              raw_nlp_text: isConversational ? newMed.raw_nlp_text : null,
               override_safety: newMed.override_safety
             })
           });
@@ -229,6 +232,7 @@
             dosage: "",
             frequency: "Once daily",
             timing_constraint: "Morning",
+            raw_nlp_text: "",
             override_safety: false
           });
           fetchTodaySchedule(selectedPatientId);
@@ -519,35 +523,62 @@
               {/* Add Med Form */}
               <div className="card">
                 <h2>Add Medication</h2>
-                <form onSubmit={handleAddMedication} style={{ marginTop: "1rem" }}>
-                  <div className="form-group">
-                    <label>Medication Name</label>
-                    <input type="text" placeholder="e.g. Ibuprofen" value={newMed.name} onChange={(e) => setNewMed({ ...newMed, name: e.target.value })} required />
-                  </div>
-                  <div className="form-group">
-                    <label>Dosage</label>
-                    <input type="text" placeholder="e.g. 400mg" value={newMed.dosage} onChange={(e) => setNewMed({ ...newMed, dosage: e.target.value })} required />
-                  </div>
-                  <div className="form-group">
-                    <label>Frequency</label>
-                    <select value={newMed.frequency} onChange={(e) => setNewMed({ ...newMed, frequency: e.target.value })}>
-                      <option>Once daily</option>
-                      <option>Twice daily</option>
-                      <option>Three times daily</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Timing Rules</label>
-                    <select value={newMed.timing_constraint} onChange={(e) => setNewMed({ ...newMed, timing_constraint: e.target.value })}>
-                      <option>Morning</option>
-                      <option>With meals</option>
-                      <option>Before meals</option>
-                      <option>Afternoon</option>
-                      <option>Evening</option>
-                      <option>Before bed</option>
-                      <option>None</option>
-                    </select>
-                  </div>
+                
+                <div className="form-group" style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "1rem" }}>
+                  <input 
+                    type="checkbox" 
+                    id="conversationalToggle" 
+                    checked={isConversational} 
+                    onChange={(e) => setIsConversational(e.target.checked)} 
+                    style={{ width: "24px", minHeight: "24px", cursor: "pointer" }}
+                  />
+                  <label htmlFor="conversationalToggle" style={{ margin: 0, cursor: "pointer" }}>Use Conversational Onboarding</label>
+                </div>
+
+                <form onSubmit={handleAddMedication} style={{ marginTop: "1.5rem" }}>
+                  {isConversational ? (
+                    <div className="form-group">
+                      <label>Describe Medication & Instructions</label>
+                      <textarea 
+                        rows="4"
+                        placeholder="e.g., I need to take Metformin 500mg twice daily with meals." 
+                        value={newMed.raw_nlp_text} 
+                        onChange={(e) => setNewMed({ ...newMed, raw_nlp_text: e.target.value })} 
+                        required 
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="form-group">
+                        <label>Medication Name</label>
+                        <input type="text" placeholder="e.g. Ibuprofen" value={newMed.name} onChange={(e) => setNewMed({ ...newMed, name: e.target.value })} required />
+                      </div>
+                      <div className="form-group">
+                        <label>Dosage</label>
+                        <input type="text" placeholder="e.g. 400mg" value={newMed.dosage} onChange={(e) => setNewMed({ ...newMed, dosage: e.target.value })} required />
+                      </div>
+                      <div className="form-group">
+                        <label>Frequency</label>
+                        <select value={newMed.frequency} onChange={(e) => setNewMed({ ...newMed, frequency: e.target.value })}>
+                          <option>Once daily</option>
+                          <option>Twice daily</option>
+                          <option>Three times daily</option>
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label>Timing Rules</label>
+                        <select value={newMed.timing_constraint} onChange={(e) => setNewMed({ ...newMed, timing_constraint: e.target.value })}>
+                          <option>Morning</option>
+                          <option>With meals</option>
+                          <option>Before meals</option>
+                          <option>Afternoon</option>
+                          <option>Evening</option>
+                          <option>Before bed</option>
+                          <option>None</option>
+                        </select>
+                      </div>
+                    </>
+                  )}
                   <button className="btn btn-primary" type="submit" style={{ width: "100%" }}>Schedule Medication</button>
                 </form>
               </div>

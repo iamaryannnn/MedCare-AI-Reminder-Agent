@@ -1,6 +1,10 @@
 import os
+import json
+import re
 from dotenv import load_dotenv
+# pyrefly: ignore [missing-import]
 from langchain_core.prompts import ChatPromptTemplate
+# pyrefly: ignore [missing-import]
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
 
 load_dotenv()
@@ -166,3 +170,95 @@ def format_fallback_missed_dose(patient_name: str, med_name: str, hours_late: fl
         return f"नमस्ते {patient_name}, {med_name} में {hours_late} घंटे की देरी के लिए चिंता न करें। आपका रिकवरी प्लान: {safety_advice}।"
     else:
         return f"Hello {patient_name}. Please don't worry about being {hours_late}h late for your {med_name}. Here is what you should do: {safety_advice} We've updated your schedule log accordingly."
+
+def parse_medication_nlp(raw_text: str) -> dict:
+    """
+    Parses conversational patient statements into structured medication variables.
+    """
+    llm = get_llm()
+    if llm:
+        try:
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", (
+                    "You are a precise clinical data extraction helper. "
+                    "Parse the patient's medication instructions and return ONLY a valid JSON object. "
+                    "Do NOT wrap the JSON in markdown code blocks (e.g., do not use ```json). "
+                    "The JSON must have the following keys:\n"
+                    "- 'name': string (the name of the drug, capitalized, e.g., 'Metformin')\n"
+                    "- 'dosage': string (dose amount, e.g., '500mg' or '1 tablet')\n"
+                    "- 'frequency': string (must be exactly one of: 'Once daily', 'Twice daily', 'Three times daily')\n"
+                    "- 'timing_constraint': string (must be exactly one of: 'Morning', 'With meals', 'Before meals', 'Afternoon', 'Evening', 'Before bed', 'None')\n\n"
+                    "If you cannot determine a key, use 'None' or default to a reasonable clinical value based on standard instructions."
+                )),
+                ("user", "Parse this: {text}")
+            ])
+            
+            chain = prompt | llm
+            response = chain.invoke({"text": raw_text})
+            content = response.content.strip()
+            
+            # Remove any markdown code block wraps
+            content = re.sub(r"^```json\s*", "", content, flags=re.IGNORECASE)
+            content = re.sub(r"\s*```$", "", content)
+            
+            return json.loads(content)
+        except Exception:
+            pass
+
+    # Fallback to offline regex parser
+    return parse_fallback_regex(raw_text)
+
+def parse_fallback_regex(text: str) -> dict:
+    text_lower = text.lower()
+    
+    # 1. Regex to extract drug name and dosage
+    pattern = r'([a-zA-Z\-]+)\s+(\d+\s*(?:mg|mcg|ml|g|capsule|tablet|tab|pill|unit)s?)'
+    match = re.search(pattern, text, re.IGNORECASE)
+    
+    if match:
+        name = match.group(1).capitalize()
+        dosage = match.group(2)
+    else:
+        # Simple split fallback
+        words = text.split()
+        name = "Unknown Medication"
+        dosage = "1 tablet"
+        for idx, word in enumerate(words):
+            if any(char.isdigit() for char in word) and idx > 0:
+                name = words[idx-1].strip(",.").capitalize()
+                if idx + 1 < len(words):
+                    dosage = f"{word} {words[idx+1].strip(',.')}"
+                else:
+                    dosage = word
+                break
+                
+    # 2. Extract frequency
+    if any(x in text_lower for x in ["three times", "3x", "3 times", "tid"]):
+        frequency = "Three times daily"
+    elif any(x in text_lower for x in ["twice", "2x", "2 times", "bid"]):
+        frequency = "Twice daily"
+    else:
+        frequency = "Once daily"
+        
+    # 3. Extract timing constraint
+    if "before meal" in text_lower:
+        timing_constraint = "Before meals"
+    elif "meal" in text_lower or "food" in text_lower or "breakfast" in text_lower or "lunch" in text_lower or "dinner" in text_lower:
+        timing_constraint = "With meals"
+    elif any(x in text_lower for x in ["bed", "night", "sleep"]):
+        timing_constraint = "Before bed"
+    elif any(x in text_lower for x in ["morning", "breakfast", "wake"]):
+        timing_constraint = "Morning"
+    elif any(x in text_lower for x in ["evening", "dinner"]):
+        timing_constraint = "Evening"
+    elif any(x in text_lower for x in ["afternoon", "lunch"]):
+        timing_constraint = "Afternoon"
+    else:
+        timing_constraint = "None"
+        
+    return {
+        "name": name,
+        "dosage": dosage,
+        "frequency": frequency,
+        "timing_constraint": timing_constraint
+    }

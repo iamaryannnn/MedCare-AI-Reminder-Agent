@@ -6,6 +6,7 @@ backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../backe
 if backend_path not in sys.path:
     sys.path.append(backend_path)
 
+# pyrefly: ignore [missing-import]
 from interaction_checker import verify_drug_safety
 
 def test_safe_medication_list():
