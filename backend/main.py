@@ -526,6 +526,65 @@ def patient_chat_endpoint(patient_id: int, request: ChatMessageRequest, db: Sess
         
         adherence_score = round((taken_slots / total_slots * 100), 1) if total_slots > 0 else 100.0
         
+        # Check if this is an adherence logging command (e.g. "I took my Metformin")
+        msg_lower = request.message.lower()
+        if any(w in msg_lower for w in ["took", "taken", "log", "consume", "done", "tome", "liya"]):
+            # Find which med they are referring to
+            matched_med = None
+            for m in meds_list:
+                if m["name"].lower() in msg_lower:
+                    matched_med = m
+                    break
+            
+            if matched_med:
+                # Find today's schedule for this medication
+                today_date = date.today().isoformat()
+                # Find medication row ID
+                med_row = db.query(models.Medication).filter(
+                    models.Medication.patient_id == patient_id,
+                    models.Medication.name == matched_med["name"]
+                ).first()
+                
+                if med_row:
+                    schedule = db.query(models.Schedule).filter(
+                        models.Schedule.patient_id == patient_id,
+                        models.Schedule.medication_id == med_row.id
+                    ).first()
+                    
+                    if schedule:
+                        # Look for adherence log for today
+                        log = db.query(models.AdherenceLog).filter(
+                            models.AdherenceLog.schedule_id == schedule.id,
+                            models.AdherenceLog.scheduled_time.like(f"{today_date}%")
+                        ).first()
+                        
+                        if not log:
+                            log = models.AdherenceLog(
+                                patient_id=patient_id,
+                                schedule_id=schedule.id,
+                                scheduled_time=f"{today_date}T{schedule.scheduled_time}:00"
+                            )
+                            db.add(log)
+                        
+                        log.status = "Taken"
+                        log.logged_time = datetime.now().isoformat()
+                        log.notes = "Logged via conversational voice command"
+                        db.commit()
+                        
+                        # Return custom success response
+                        lang = patient.language.lower()
+                        if "span" in lang:
+                            resp = f"¡Excelente! He registrado su {matched_med['name']} como tomado en su historial. ¡Siga así!"
+                        elif "hind" in lang:
+                            resp = f"बहुत बढ़िया! मैंने आपके इतिहास में {matched_med['name']} को 'लिया गया' दर्ज कर लिया है। ऐसे ही ध्यान रखें!"
+                        else:
+                            resp = f"Excellent! I've logged your {matched_med['name']} as taken in your history logs. Keep up the good work!"
+                            
+                        return {
+                            "patient_id": patient_id,
+                            "response": resp + "\n\nDisclaimer: MedCare AI is an assistive decision-support tool. It does not replace professional medical advice."
+                        }
+
         # Run chat agent
         agent_response = ai_agent.run_agent_chat(
             patient_name=patient.name,

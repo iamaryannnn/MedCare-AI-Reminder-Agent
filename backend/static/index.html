@@ -59,6 +59,85 @@
       border-radius: 12px;
       border: 1px solid var(--border);
     }
+    @keyframes pulse {
+      0% {
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+      }
+      70% {
+        box-shadow: 0 0 0 15px rgba(16, 185, 129, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+      }
+    }
+    
+    /* Voice Command Simulator Styles */
+    .voice-modal {
+      background: #1e293b;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2rem;
+      max-width: 550px;
+      width: 90%;
+      box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);
+      position: relative;
+    }
+    .mic-button-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 1.5rem 0;
+    }
+    .mic-pulse-btn {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: #0f766e; /* Teal-700 */
+      border: 4px solid #14b8a6; /* Teal-500 */
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 2rem;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    .mic-pulse-btn.listening {
+      background: #ef4444; /* Red-500 */
+      border-color: #f87171; /* Red-400 */
+      animation: pulse 1.5s infinite;
+    }
+    .mic-status-text {
+      margin-top: 0.75rem;
+      font-weight: 600;
+      font-size: 1.1rem;
+      color: var(--text-main);
+    }
+    .simulated-commands-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.5rem;
+      max-height: 180px;
+      overflow-y: auto;
+      margin-top: 1rem;
+      padding-right: 0.25rem;
+    }
+    .simulated-cmd-btn {
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      padding: 0.6rem 1rem;
+      border-radius: 8px;
+      text-align: left;
+      cursor: pointer;
+      font-size: 0.95rem;
+      transition: all 0.2s;
+    }
+    .simulated-cmd-btn:hover {
+      background: rgba(20, 184, 166, 0.1);
+      border-color: var(--primary);
+    }
   </style>
 </head>
 <body>
@@ -86,6 +165,12 @@
       // Modals and Alerts
       const [warningConflict, setWarningConflict] = useState(null);
       const [notificationTriggered, setNotificationTriggered] = useState("");
+
+      // Voice Simulator States
+      const [showVoiceModal, setShowVoiceModal] = useState(false);
+      const [isListening, setIsListening] = useState(false);
+      const [voiceTranscript, setVoiceTranscript] = useState("");
+      const [voiceError, setVoiceError] = useState("");
 
       // Chat Assistant States
       const [chatHistory, setChatHistory] = useState([]);
@@ -123,6 +208,9 @@
       // Load initial patient list
       useEffect(() => {
         fetchPatients();
+        if (window.speechSynthesis) {
+          window.speechSynthesis.getVoices();
+        }
       }, []);
 
       // Trigger profile details reload on patient select
@@ -149,6 +237,15 @@
           window.lucide.createIcons();
         }
       }, [activeTab]);
+
+      // Trigger Lucide icon compilation when voice modal opens
+      useEffect(() => {
+        if (showVoiceModal && window.lucide) {
+          setTimeout(() => {
+            window.lucide.createIcons();
+          }, 50);
+        }
+      }, [showVoiceModal]);
 
       // Reset and initialize chat when patient changes
       useEffect(() => {
@@ -198,14 +295,38 @@
             
             // Map language preference to browser locales
             const lang = activePatient.language ? activePatient.language.toLowerCase() : "english";
+            let langCode = "en-US";
             if (lang.includes("span")) {
-              utterance.lang = "es-ES";
+              langCode = "es-ES";
             } else if (lang.includes("hind")) {
-              utterance.lang = "hi-IN";
+              langCode = "hi-IN";
             } else if (lang.includes("fren")) {
-              utterance.lang = "fr-FR";
+              langCode = "fr-FR";
             } else {
-              utterance.lang = "en-US";
+              langCode = "en-US";
+            }
+            
+            utterance.lang = langCode;
+            
+            // Query available voices and select a high-quality (Siri / Google / Natural / Samantha) voice
+            const voices = window.speechSynthesis.getVoices();
+            if (voices && voices.length > 0) {
+              const matchingVoices = voices.filter(v => v.lang.toLowerCase().startsWith(langCode.substring(0, 2)));
+              if (matchingVoices.length > 0) {
+                // Look for high-quality natural voices (Siri, Samantha, Google, Premium, Natural, Alexa, Enhanced)
+                const preferredVoiceKeywords = ["natural", "siri", "google", "alexa", "samantha", "daniel", "premium", "enhanced"];
+                let selectedVoice = null;
+                for (const keyword of preferredVoiceKeywords) {
+                  selectedVoice = matchingVoices.find(v => v.name.toLowerCase().includes(keyword));
+                  if (selectedVoice) break;
+                }
+                // Fallback to first available matching voice
+                if (!selectedVoice) {
+                  selectedVoice = matchingVoices[0];
+                }
+                utterance.voice = selectedVoice;
+                console.log("Synthesizing speech with voice:", selectedVoice.name);
+              }
             }
             
             window.speechSynthesis.speak(utterance);
@@ -217,6 +338,67 @@
         } finally {
           setChatLoading(false);
         }
+      };
+
+      const startListening = () => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+          setVoiceError("Web Speech Recognition API is not supported in this browser. Please use quick simulated commands or fallback text input.");
+          return;
+        }
+
+        try {
+          const recognition = new SpeechRecognition();
+          recognition.continuous = false;
+          recognition.interimResults = false;
+          
+          const lang = activePatient && activePatient.language ? activePatient.language.toLowerCase() : "english";
+          if (lang.includes("span")) {
+            recognition.lang = "es-ES";
+          } else if (lang.includes("hind")) {
+            recognition.lang = "hi-IN";
+          } else if (lang.includes("fren")) {
+            recognition.lang = "fr-FR";
+          } else {
+            recognition.lang = "en-US";
+          }
+
+          recognition.onstart = () => {
+            setIsListening(true);
+            setVoiceError("");
+            setVoiceTranscript("Listening...");
+          };
+
+          recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            setVoiceTranscript(transcript);
+          };
+
+          recognition.onerror = (event) => {
+            console.error("Speech recognition error", event.error);
+            setVoiceError(`Speech error: ${event.error}. Please try again or use custom command options.`);
+            setIsListening(false);
+          };
+
+          recognition.onend = () => {
+            setIsListening(false);
+          };
+
+          recognition.start();
+        } catch (err) {
+          console.error(err);
+          setVoiceError("Failed to initialize speech recognition.");
+          setIsListening(false);
+        }
+      };
+
+      const submitVoiceCommand = (cmdText) => {
+        const textToSend = cmdText || voiceTranscript;
+        if (!textToSend || !textToSend.trim() || textToSend === "Listening...") return;
+        
+        setShowVoiceModal(false);
+        setActiveTab("chat");
+        handleSendChatMessage(textToSend);
       };
 
       const fetchPatients = async () => {
@@ -451,12 +633,25 @@
 
           {/* Active Patient Bar */}
           {activePatient && (
-            <div style={{ background: "rgba(30, 41, 59, 0.4)", padding: "1rem", borderRadius: "8px", border: "1px solid var(--border)", marginBottom: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ background: "rgba(30, 41, 59, 0.4)", padding: "1rem", borderRadius: "8px", border: "1px solid var(--border)", marginBottom: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
               <div>
                 <strong>Active Patient:</strong> {activePatient.name} ({activePatient.age} yo) | <strong>Conditions:</strong> {activePatient.conditions || "None"}
               </div>
-              <div style={{ color: "var(--primary)", fontWeight: "bold" }}>
-                🎯 Preference: {activePatient.language} ({activePatient.timezone})
+              <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                <button 
+                  className="btn btn-primary" 
+                  style={{ display: "flex", alignItems: "center", gap: "0.5rem", minHeight: "38px", background: "var(--primary)", color: "#0f172a", border: "none" }} 
+                  onClick={() => {
+                    setVoiceTranscript("");
+                    setVoiceError("");
+                    setShowVoiceModal(true);
+                  }}
+                >
+                  <i data-lucide="mic" style={{ width: "16px", height: "16px" }}></i> Simulate Voice
+                </button>
+                <div style={{ color: "var(--primary)", fontWeight: "bold" }}>
+                  🎯 Preference: {activePatient.language} ({activePatient.timezone})
+                </div>
               </div>
             </div>
           )}
@@ -482,6 +677,120 @@
                 <div style={{ display: "flex", gap: "1rem" }}>
                   <button className="btn btn-danger" onClick={handleOverrideConflict}>Confirm Override (Physician Approved)</button>
                   <button className="btn btn-secondary" onClick={() => setWarningConflict(null)}>Cancel and Revise</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Voice Command Simulator Modal Overlay */}
+          {showVoiceModal && (
+            <div className="warning-overlay">
+              <div className="voice-modal">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)", paddingBottom: "0.75rem", marginBottom: "1rem" }}>
+                  <h2 style={{ margin: 0, color: "var(--primary)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <i data-lucide="mic"></i> Voice Command Simulator
+                  </h2>
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary btn-sm" 
+                    style={{ padding: "0.25rem 0.5rem", minHeight: "auto" }} 
+                    onClick={() => {
+                      if (window.speechSynthesis) window.speechSynthesis.cancel();
+                      setShowVoiceModal(false);
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                
+                <p style={{ fontSize: "0.9rem", color: "var(--text-secondary)", marginBottom: "1rem" }}>
+                  Speak hands-free to log compliance or ask health questions. 
+                </p>
+
+                <div className="mic-button-container">
+                  <button 
+                    type="button" 
+                    className={`mic-pulse-btn ${isListening ? "listening" : ""}`} 
+                    onClick={startListening}
+                    title="Click to start speech recognition"
+                  >
+                    <i data-lucide="mic"></i>
+                  </button>
+                  <span className="mic-status-text">
+                    {isListening ? "Listening... Speak now!" : "Click Mic to Speak"}
+                  </span>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: "1rem" }}>
+                  <label>Transcribed / Simulated Command:</label>
+                  <input 
+                    type="text" 
+                    placeholder="Transcription text will appear here..." 
+                    value={voiceTranscript}
+                    onChange={(e) => setVoiceTranscript(e.target.value)}
+                    style={{ width: "100%", padding: "0.75rem", borderRadius: "8px", background: "rgba(30, 41, 59, 0.4)", border: "1px solid var(--border)", color: "#fff" }}
+                  />
+                  {voiceError && <p style={{ color: "var(--danger)", fontSize: "0.85rem", marginTop: "0.25rem" }}>{voiceError}</p>}
+                </div>
+
+                <div>
+                  <label style={{ fontWeight: "bold", fontSize: "0.9rem", display: "block", marginBottom: "0.5rem" }}>Or click a simulated quick-command:</label>
+                  <div className="simulated-commands-grid">
+                    {/* Render dynamic medication intake command suggestions */}
+                    {todaySchedule.length > 0 ? (
+                      todaySchedule.map((item, idx) => (
+                        <button 
+                          key={`take-${idx}`}
+                          type="button"
+                          className="simulated-cmd-btn"
+                          onClick={() => submitVoiceCommand(`I took my ${item.medication_name}`)}
+                        >
+                          🗣️ "I took my {item.medication_name}" (Log Compliance)
+                        </button>
+                      ))
+                    ) : (
+                      <button 
+                        type="button"
+                        className="simulated-cmd-btn"
+                        onClick={() => submitVoiceCommand("I took my Metformin")}
+                      >
+                        🗣️ "I took my Metformin" (Log Compliance)
+                      </button>
+                    )}
+                    
+                    <button 
+                      type="button"
+                      className="simulated-cmd-btn"
+                      onClick={() => submitVoiceCommand("What is my medication schedule for today?")}
+                    >
+                      🗣️ "What is my medication schedule for today?"
+                    </button>
+                    <button 
+                      type="button"
+                      className="simulated-cmd-btn"
+                      onClick={() => submitVoiceCommand("Check my medication list safety for any drug conflicts.")}
+                    >
+                      🗣️ "Check my safety conflicts"
+                    </button>
+                    <button 
+                      type="button"
+                      className="simulated-cmd-btn"
+                      onClick={() => submitVoiceCommand("Can you tell me my adherence compliance score?")}
+                    >
+                      🗣️ "Check my adherence compliance score"
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: "1rem", marginTop: "1.5rem", justifyContent: "flex-end" }}>
+                  <button className="btn btn-secondary" onClick={() => { if (window.speechSynthesis) window.speechSynthesis.cancel(); setShowVoiceModal(false); }}>Close</button>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={() => submitVoiceCommand()} 
+                    disabled={!voiceTranscript.trim() || voiceTranscript === "Listening..." || voiceTranscript === "Listening"}
+                  >
+                    Submit Command
+                  </button>
                 </div>
               </div>
             </div>
