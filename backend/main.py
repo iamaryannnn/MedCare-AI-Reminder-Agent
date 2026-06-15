@@ -493,3 +493,49 @@ def trigger_missed_dose_recovery(patient_id: int, med_name: str, hours_late: flo
         "action_required": safety_advice,
         "recovery_message": recovery_plan
     }
+
+class ChatMessageRequest(BaseModel):
+    message: str
+
+@app.post("/api/patients/{patient_id}/chat")
+def patient_chat_endpoint(patient_id: int, request: ChatMessageRequest, db: Session = Depends(get_db)):
+    with tracer.start_as_current_span("patient_chat_assistant"):
+        patient = db.query(models.Patient).filter(models.Patient.id == patient_id).first()
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+            
+        # Get patient meds list in structured dictionary
+        meds = db.query(models.Medication).filter(models.Medication.patient_id == patient_id).all()
+        meds_list = []
+        for m in meds:
+            schedules = [s.scheduled_time for s in m.schedules if s.is_active]
+            meds_list.append({
+                "name": m.name,
+                "dosage": m.dosage,
+                "frequency": m.frequency,
+                "timing_constraint": m.timing_constraint,
+                "schedules": schedules
+            })
+            
+        # Compile adherence percentage
+        total_slots = db.query(models.AdherenceLog).filter(models.AdherenceLog.patient_id == patient_id).count()
+        taken_slots = db.query(models.AdherenceLog).filter(
+            models.AdherenceLog.patient_id == patient_id,
+            models.AdherenceLog.status == "Taken"
+        ).count()
+        
+        adherence_score = round((taken_slots / total_slots * 100), 1) if total_slots > 0 else 100.0
+        
+        # Run chat agent
+        agent_response = ai_agent.run_agent_chat(
+            patient_name=patient.name,
+            language=patient.language,
+            meds_list=meds_list,
+            adherence_score=adherence_score,
+            message=request.message
+        )
+        
+        return {
+            "patient_id": patient_id,
+            "response": agent_response
+        }

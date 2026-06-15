@@ -87,6 +87,11 @@
       const [warningConflict, setWarningConflict] = useState(null);
       const [notificationTriggered, setNotificationTriggered] = useState("");
 
+      // Chat Assistant States
+      const [chatHistory, setChatHistory] = useState([]);
+      const [chatInput, setChatInput] = useState("");
+      const [chatLoading, setChatLoading] = useState(false);
+
       // Forms
       const [isConversational, setIsConversational] = useState(false);
       const [newMed, setNewMed] = useState({
@@ -137,6 +142,82 @@
         if (accessibilityScale === "large") bodyClass.add("accessibility-large");
         if (accessibilityScale === "xl") bodyClass.add("accessibility-xl");
       }, [accessibilityScale]);
+
+      // Re-trigger Lucide icon compilation when activeTab changes
+      useEffect(() => {
+        if (window.lucide) {
+          window.lucide.createIcons();
+        }
+      }, [activeTab]);
+
+      // Reset and initialize chat when patient changes
+      useEffect(() => {
+        if (activePatient) {
+          const lang = activePatient.language ? activePatient.language.toLowerCase() : "english";
+          let greeting = `Hello ${activePatient.name}, I am your MedCare AI assistant. How can I help you manage your medications today? You can ask me about missed doses, check safety, or list your schedules.`;
+          if (lang.includes("span")) {
+            greeting = `Hola ${activePatient.name}, soy su asistente MedCare AI. ¿Cómo puedo ayudarle a administrar sus medicamentos hoy?`;
+          } else if (lang.includes("hind")) {
+            greeting = `नमस्ते ${activePatient.name}, मैं आपका मेडकेयर एआई सहायक हूँ। आज मैं आपकी दवाइयां प्रबंधित करने में कैसे मदद कर सकता हूँ?`;
+          } else if (lang.includes("fren")) {
+            greeting = `Bonjour ${activePatient.name}, je suis votre assistant MedCare AI. Comment puis-je vous aider à gérer vos médicaments aujourd'hui ?`;
+          }
+          setChatHistory([{ sender: "bot", text: greeting, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
+        }
+      }, [activePatient]);
+
+      const handleSendChatMessage = async (msgText) => {
+        const queryText = msgText || chatInput;
+        if (!queryText || !queryText.trim()) return;
+
+        // Add user message to history
+        const userMsg = { sender: "user", text: queryText, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+        setChatHistory(prev => [...prev, userMsg]);
+        setChatInput("");
+        setChatLoading(true);
+
+        try {
+          const res = await fetch(`${API_BASE}/api/patients/${selectedPatientId}/chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: queryText })
+          });
+
+          if (!res.ok) throw new Error("Chat assistant error");
+          const data = await res.json();
+          
+          const botMsg = { sender: "bot", text: data.response, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+          setChatHistory(prev => [...prev, botMsg]);
+
+          // Synthesize Text-to-Speech playback using browser Web Speech API
+          if (window.speechSynthesis) {
+            // Cancel current speech
+            window.speechSynthesis.cancel();
+            
+            const utterance = new SpeechSynthesisUtterance(data.response);
+            
+            // Map language preference to browser locales
+            const lang = activePatient.language ? activePatient.language.toLowerCase() : "english";
+            if (lang.includes("span")) {
+              utterance.lang = "es-ES";
+            } else if (lang.includes("hind")) {
+              utterance.lang = "hi-IN";
+            } else if (lang.includes("fren")) {
+              utterance.lang = "fr-FR";
+            } else {
+              utterance.lang = "en-US";
+            }
+            
+            window.speechSynthesis.speak(utterance);
+          }
+        } catch (e) {
+          console.error("Chat error", e);
+          const errorMsg = { sender: "bot", text: "Sorry, I am having trouble connecting to the safety assistant service right now.", timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+          setChatHistory(prev => [...prev, errorMsg]);
+        } finally {
+          setChatLoading(false);
+        }
+      };
 
       const fetchPatients = async () => {
         try {
@@ -357,6 +438,7 @@
               <button className={`nav-btn ${activeTab === "onboarding" ? "active" : ""}`} onClick={() => setActiveTab("onboarding")}>Onboard Patient</button>
               <button className={`nav-btn ${activeTab === "analytics" ? "active" : ""}`} onClick={() => setActiveTab("analytics")}>Analytics</button>
               <button className={`nav-btn ${activeTab === "settings" ? "active" : ""}`} onClick={() => setActiveTab("settings")}>Settings</button>
+              <button className={`nav-btn ${activeTab === "chat" ? "active" : ""}`} onClick={() => setActiveTab("chat")}>Chat Assistant</button>
             </div>
 
             {/* Accessibility Quickly Sizable Panel */}
@@ -743,6 +825,126 @@
               <div style={{ marginTop: "2rem", background: "rgba(30, 41, 59, 0.6)", padding: "1rem", borderRadius: "8px", border: "1px solid var(--border)", fontSize: "0.85rem" }}>
                 <strong>Demo Notes:</strong> Set database files under `.env`. To populate mock database data, run the seed script: <code>python seed.py</code> in the backend directory.
               </div>
+            </div>
+          )}
+
+          {/* TAB 6: CHAT ASSISTANT */}
+          {activeTab === "chat" && (
+            <div className="card text-scale-target animate-fade-in" style={{ maxWidth: "800px", margin: "0 auto" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)", paddingBottom: "1.25rem", marginBottom: "1.5rem" }}>
+                <div>
+                  <h2 style={{ color: "var(--primary)", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <i data-lucide="message-square"></i> Safety & Recovery Chat Assistant
+                  </h2>
+                  <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.9rem", color: "var(--text-secondary)" }}>
+                    Ask about missed/late doses, drug safety warnings, or schedule recovery actions.
+                  </p>
+                </div>
+                <button className="btn btn-secondary btn-sm" onClick={() => {
+                  if (window.speechSynthesis) window.speechSynthesis.cancel();
+                  if (activePatient) {
+                    const lang = activePatient.language ? activePatient.language.toLowerCase() : "english";
+                    let greeting = `Hello ${activePatient.name}, I am your MedCare AI assistant. How can I help you manage your medications today? You can ask me about missed doses, check safety, or list your schedules.`;
+                    if (lang.includes("span")) {
+                      greeting = `Hola ${activePatient.name}, soy su asistente MedCare AI. ¿Cómo puedo ayudarle a administrar sus medicamentos hoy?`;
+                    } else if (lang.includes("hind")) {
+                      greeting = `नमस्ते ${activePatient.name}, मैं आपका मेडकेयर एआई सहायक हूँ। आज मैं आपकी दवाइयां प्रबंधित करने में कैसे मदद कर सकता हूँ?`;
+                    } else if (lang.includes("fren")) {
+                      greeting = `Bonjour ${activePatient.name}, je suis votre assistant MedCare AI. Comment puis-je vous aider à gérer vos médicaments aujourd'hui ?`;
+                    }
+                    setChatHistory([{ sender: "bot", text: greeting, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
+                  }
+                }}>
+                  Clear History
+                </button>
+              </div>
+
+              {/* Chat Messages Display Box */}
+              <div id="chat-messages-container" style={{
+                height: "350px",
+                overflowY: "auto",
+                border: "1px solid var(--border)",
+                borderRadius: "12px",
+                padding: "1rem",
+                background: "rgba(15, 23, 42, 0.4)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "1rem",
+                marginBottom: "1rem"
+              }}>
+                {chatHistory.map((chat, idx) => (
+                  <div key={idx} style={{
+                    alignSelf: chat.sender === "user" ? "flex-end" : "flex-start",
+                    maxWidth: "80%",
+                    background: chat.sender === "user" ? "var(--primary)" : "rgba(30, 41, 59, 0.8)",
+                    color: chat.sender === "user" ? "#0f172a" : "var(--text-main)",
+                    padding: "0.85rem 1.15rem",
+                    borderRadius: chat.sender === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
+                    border: chat.sender === "user" ? "none" : "1px solid var(--border)",
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                    fontSize: "0.95rem",
+                    lineHeight: "1.4"
+                  }}>
+                    <div style={{ whiteSpace: "pre-wrap" }}>{chat.text}</div>
+                    <div style={{
+                      textAlign: "right",
+                      fontSize: "0.75rem",
+                      marginTop: "0.35rem",
+                      opacity: 0.6,
+                      color: chat.sender === "user" ? "#0f172a" : "var(--text-secondary)"
+                    }}>
+                      {chat.timestamp}
+                    </div>
+                  </div>
+                ))}
+                {chatLoading && (
+                  <div style={{ alignSelf: "flex-start", color: "var(--text-secondary)", fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <span className="spinner" style={{ border: "2px solid rgba(255,255,255,0.1)", borderTop: "2px solid var(--primary)", borderRadius: "50%", width: "12px", height: "12px", display: "inline-block", animation: "spin 1s linear infinite" }}></span> MedCare AI is thinking...
+                  </div>
+                )}
+              </div>
+
+              {/* Quick Prompt Suggester Buttons */}
+              <div style={{ marginBottom: "1.5rem" }}>
+                <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: "bold" }}>Quick Tap Questions:</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={chatLoading} onClick={() => handleSendChatMessage("I missed my Metformin dose. What should I do?")}>
+                    Missed Metformin?
+                  </button>
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={chatLoading} onClick={() => handleSendChatMessage("Check my medication list safety for any drug conflicts.")}>
+                    Check Safety Conflicts
+                  </button>
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={chatLoading} onClick={() => handleSendChatMessage("Show my adherence compliance report.")}>
+                    Show Adherence Score
+                  </button>
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={chatLoading} onClick={() => handleSendChatMessage("What is my current medication schedule?")}>
+                    View Schedule
+                  </button>
+                </div>
+              </div>
+
+              {/* Send Message Input Form */}
+              <form onSubmit={(e) => { e.preventDefault(); handleSendChatMessage(); }} style={{ display: "flex", gap: "0.75rem" }}>
+                <input
+                  type="text"
+                  placeholder="Ask about missed doses, safety, or schedule recovery..."
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  disabled={chatLoading}
+                  style={{
+                    flex: 1,
+                    background: "rgba(30, 41, 59, 0.4)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "8px",
+                    padding: "0.75rem 1rem",
+                    color: "var(--text-main)",
+                    fontSize: "0.95rem"
+                  }}
+                />
+                <button type="submit" className="btn btn-primary" disabled={chatLoading || !chatInput.trim()}>
+                  Send
+                </button>
+              </form>
             </div>
           )}
         </div>

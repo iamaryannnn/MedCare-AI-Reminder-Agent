@@ -262,3 +262,140 @@ def parse_fallback_regex(text: str) -> dict:
         "frequency": frequency,
         "timing_constraint": timing_constraint
     }
+
+def run_agent_chat(
+    patient_name: str,
+    language: str,
+    meds_list: list,
+    adherence_score: float,
+    message: str
+) -> str:
+    """
+    Runs the agentic chat assistant, injecting patient-specific context.
+    Degrades gracefully if no API key is present.
+    """
+    llm = get_llm()
+    meds_context = "\n".join([
+        f"- {m['name']} ({m['dosage']}): scheduled at {', '.join(m['schedules'])} (Constraint: {m['timing_constraint']})"
+        for m in meds_list
+    ])
+    
+    if llm:
+        try:
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", (
+                    "You are MedCare AI, an empathetic and highly precise medication advisor and clinical support agent. "
+                    "Your patient is {patient_name} (Language: {language}). "
+                    "Here is their current medication regimen:\n"
+                    "{meds_context}\n\n"
+                    "Their current adherence compliance score is: {adherence_score}%.\n\n"
+                    "Guidelines:\n"
+                    "1. Respond directly and empathetically to the patient's request.\n"
+                    "2. If they ask about a missed or late dose, evaluate safety. Metformin late doses are safe within 4 hours; blood pressure pills within 2 hours; blood thinners like Warfarin within 3 hours. Otherwise tell them to skip and resume tomorrow.\n"
+                    "3. If they ask about drug interactions, check their regimen. Warfarin + Ibuprofen or Warfarin + Aspirin is dangerous. Metformin + Contrast Dye is moderate danger. Sildenafil + Nitroglycerin is critical. Otherwise, state there are no known conflicts.\n"
+                    "4. Always include this disclaimer at the end of clinical advice: 'Disclaimer: MedCare AI is an assistive decision-support tool. It does not replace professional medical advice.'\n"
+                    "5. Keep the response concise, patient-friendly, and in the patient's preferred language ({language})."
+                )),
+                ("user", "{user_message}")
+            ])
+            
+            chain = prompt | llm
+            response = chain.invoke({
+                "patient_name": patient_name,
+                "language": language,
+                "meds_context": meds_context,
+                "adherence_score": adherence_score,
+                "user_message": message
+            })
+            return response.content.strip()
+        except Exception:
+            pass
+            
+    # FALLBACK ROUTER
+    return parse_fallback_chat(patient_name, language, meds_list, adherence_score, message)
+
+def parse_fallback_chat(
+    patient_name: str,
+    language: str,
+    meds_list: list,
+    adherence_score: float,
+    message: str
+) -> str:
+    lang = language.lower()
+    msg_lower = message.lower()
+    
+    # 1. Missed/Late dose recovery checks
+    if any(x in msg_lower for x in ["miss", "late", "forgot", "delay", "omitted"]):
+        # Check which med they missed
+        target_med = "your medication"
+        for m in meds_list:
+            if m["name"].lower() in msg_lower:
+                target_med = m["name"]
+                break
+                
+        if "span" in lang:
+            return (
+                f"Hola {patient_name}. Si se retrasó menos de 3 horas con {target_med}, puede tomarlo ahora. "
+                f"Si es más tarde, es mejor omitir la dosis y continuar con su horario habitual mañana. No duplique la dosis.\n\n"
+                f"Aviso: MedCare AI es una herramienta de soporte. Consulte a su médico."
+            )
+        elif "hind" in lang:
+            return (
+                f"नमस्ते {patient_name}। यदि आप {target_med} लेने में 3 घंटे से कम लेट हैं, तो इसे अभी ले सकते हैं। "
+                f"यदि देरी अधिक है, तो इसे छोड़ दें और कल नियमित समय पर लें। डबल खुराक न लें।\n\n"
+                f"अस्वीकरण: मेडकेयर एआई एक सहायक उपकरण है। डॉक्टर से सलाह लें।"
+            )
+        else:
+            return (
+                f"Hello {patient_name}. If you are less than 3 hours late for {target_med}, it is generally safe to take it now. "
+                f"If it's later than that, please skip the missed dose and resume your regular schedule tomorrow. Do not double-dose.\n\n"
+                f"Disclaimer: MedCare AI is an assistive decision-support tool. It does not replace professional medical advice."
+            )
+
+    # 2. Drug safety / interaction checks
+    elif any(x in msg_lower for x in ["safety", "conflict", "interact", "danger", "warning"]):
+        # Check if they have warfarin and ibuprofen
+        med_names = [m["name"].lower() for m in meds_list]
+        has_warfarin = "warfarin" in med_names or "warfarin" in msg_lower
+        has_ibuprofen = "ibuprofen" in med_names or "ibuprofen" in msg_lower
+        has_aspirin = "aspirin" in med_names or "aspirin" in msg_lower
+        
+        if has_warfarin and (has_ibuprofen or has_aspirin):
+            conflict_warning = "Critical Warning: Mixing Warfarin (blood thinner) with NSAIDs like Ibuprofen or Aspirin increases bleeding risk."
+        else:
+            conflict_warning = "Your current medication list shows no clinical conflicts."
+            
+        if "span" in lang:
+            return f"Control de seguridad: {conflict_warning}\n\nAviso: MedCare AI es una herramienta de soporte. Consulte a su médico."
+        elif "hind" in lang:
+            return f"सुरक्षा जाँच: {conflict_warning}\n\nअस्वीकरण: मेडकेयर एआई एक सहायक उपकरण है। डॉक्टर से सलाह लें।"
+        else:
+            return f"Safety Check: {conflict_warning}\n\nDisclaimer: MedCare AI is an assistive decision-support tool. It does not replace professional medical advice."
+
+    # 3. Schedule check
+    elif any(x in msg_lower for x in ["schedule", "time", "plan", "routines"]):
+        meds_summary = ", ".join([f"{m['name']} at {', '.join(m['schedules'])}" for m in meds_list])
+        if "span" in lang:
+            return f"Su horario de medicación actual: {meds_summary}."
+        elif "hind" in lang:
+            return f"आपका वर्तमान शेड्यूल: {meds_summary}।"
+        else:
+            return f"Your current medication schedule: {meds_summary}."
+
+    # 4. Adherence check
+    elif any(x in msg_lower for x in ["adherence", "score", "percent", "compliance"]):
+        if "span" in lang:
+            return f"Su tasa de cumplimiento de adherencia actual es {adherence_score}%."
+        elif "hind" in lang:
+            return f"आपका वर्तमान एडहेरेंस स्कोर {adherence_score}% है।"
+        else:
+            return f"Your current adherence compliance score is {adherence_score}%."
+
+    # 5. Default supportive chat
+    else:
+        if "span" in lang:
+            return f"Hola {patient_name}, ¿en qué puedo ayudarle hoy con sus medicamentos? Puedo aconsejarle sobre dosis olvidadas o verificar interacciones."
+        elif "hind" in lang:
+            return f"नमस्ते {patient_name}, मैं आपकी दवाइयों के संबंध में क्या सहायता कर सकता हूँ? मैं छूटी हुई खुराक या सुरक्षा जाँच में मदद कर सकता हूँ।"
+        else:
+            return f"Hello {patient_name}, how can I assist you with your medications today? You can ask me about missed/late doses, check drug safety, or view your compliance."
