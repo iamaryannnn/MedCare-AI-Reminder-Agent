@@ -204,13 +204,20 @@ def add_medication(med: MedicationCreate, db: Session = Depends(get_db)):
         # Test current drug safety including new drug candidate
         safety_assessment = interaction_checker.verify_drug_safety(med_names + [med.name])
         
-        if not safety_assessment["is_safe"] and not med.override_safety:
+        # Filter conflicts to only include those involving the new medication candidate
+        new_med_lower = med.name.strip().lower()
+        new_conflicts = [
+            c for c in safety_assessment["conflicts"]
+            if c["medication_a"].lower().strip() == new_med_lower or c["medication_b"].lower().strip() == new_med_lower
+        ]
+        
+        if len(new_conflicts) > 0 and not med.override_safety:
             # Block registration and return safety conflicts
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
                     "error": "Drug interaction conflict detected",
-                    "conflicts": safety_assessment["conflicts"],
+                    "conflicts": new_conflicts,
                     "disclaimer": safety_assessment["disclaimer"]
                 }
             )
