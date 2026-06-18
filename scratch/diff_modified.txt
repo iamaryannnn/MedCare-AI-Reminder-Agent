@@ -1,0 +1,427 @@
+9,12c9,12
+<   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+<   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+<   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<   <script src="https://unpkg.com/lucide@latest"></script>
+---
+>   <script src="https://unpkg.com/react@18.2.0/umd/react.development.js" crossorigin></script>
+>   <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.development.js" crossorigin></script>
+>   <script src="https://unpkg.com/@babel/standalone@7.24.6/babel.min.js"></script>
+>   <script src="https://unpkg.com/lucide@0.354.0/dist/umd/lucide.min.js"></script>
+146a147
+>     console.log("Babel script parsed and starting to execute...");
+148c149
+<     const API_BASE = ""; // Empty string calls relative path of same server
+---
+>     const API_BASE = window.location.port === "8000" || window.location.origin.includes(".lhr.life") ? "" : "http://localhost:8000";
+149a151,210
+>     function VoiceWaveform({ isListening }) {
+>       const canvasRef = React.useRef(null);
+> 
+>       React.useEffect(() => {
+>         const canvas = canvasRef.current;
+>         if (!canvas) return;
+>         const ctx = canvas.getContext("2d");
+>         let animationId;
+>         let phase = 0;
+> 
+>         const renderWave = () => {
+>           ctx.clearRect(0, 0, canvas.width, canvas.height);
+>           
+>           // Draw multiple sine waves overlapping with different phases, amplitudes, and opacity (Siri-style)
+>           const waves = [
+>             { amplitude: isListening ? 25 : 4, speed: 1.5, color: "rgba(20, 184, 166, 0.6)" },  // Cyan/Teal
+>             { amplitude: isListening ? 15 : 2, speed: -1.0, color: "rgba(16, 185, 129, 0.4)" },  // Green
+>             { amplitude: isListening ? 8 : 1, speed: 0.8, color: "rgba(99, 102, 241, 0.3)" }    // Indigo
+>           ];
+> 
+>           phase += 0.05;
+> 
+>           waves.forEach(w => {
+>             ctx.beginPath();
+>             ctx.lineWidth = 2;
+>             ctx.strokeStyle = w.color;
+> 
+>             for (let x = 0; x < canvas.width; x++) {
+>               // Sine wave centered vertically, pinched at both ends via sine envelope
+>               const envelope = Math.sin(x * Math.PI / canvas.width);
+>               const y = canvas.height / 2 + Math.sin(x * 0.025 + phase * w.speed) * w.amplitude * envelope;
+>               if (x === 0) {
+>                 ctx.moveTo(x, y);
+>               } else {
+>                 ctx.lineTo(x, y);
+>               }
+>             }
+>             ctx.stroke();
+>           });
+> 
+>           animationId = requestAnimationFrame(renderWave);
+>         };
+> 
+>         renderWave();
+> 
+>         return () => {
+>           cancelAnimationFrame(animationId);
+>         };
+>       }, [isListening]);
+> 
+>       return (
+>         <canvas 
+>           ref={canvasRef} 
+>           width="480" 
+>           height="80" 
+>           style={{ width: "100%", height: "80px", background: "transparent", marginTop: "1rem" }}
+>         />
+>       );
+>     }
+> 
+158a220
+>       const [adherenceHistory, setAdherenceHistory] = useState([]);
+220,222c282
+<           fetchTodaySchedule(selectedPatientId);
+<           fetchMedications(selectedPatientId);
+<           fetchAdherenceSummary(selectedPatientId);
+---
+>           refreshPatientData(selectedPatientId);
+287a348
+>           refreshPatientData(selectedPatientId);
+458a520,529
+>         }
+>       };
+> 
+>       const fetchAdherenceHistory = async (id) => {
+>         try {
+>           const res = await fetch(`${API_BASE}/api/patients/${id}/adherence/history`);
+>           const data = await res.json();
+>           setAdherenceHistory(data);
+>         } catch (e) {
+>           console.error("Failed to fetch history logs", e);
+461a533,540
+>       const refreshPatientData = (id) => {
+>         if (!id) return;
+>         fetchTodaySchedule(id);
+>         fetchMedications(id);
+>         fetchAdherenceSummary(id);
+>         fetchAdherenceHistory(id);
+>       };
+> 
+501,503c580
+<           fetchTodaySchedule(selectedPatientId);
+<           fetchMedications(selectedPatientId);
+<           fetchAdherenceSummary(selectedPatientId);
+---
+>           refreshPatientData(selectedPatientId);
+523,525c600
+<           fetchMedications(selectedPatientId);
+<           fetchTodaySchedule(selectedPatientId);
+<           fetchAdherenceSummary(selectedPatientId);
+---
+>           refreshPatientData(selectedPatientId);
+530a606,619
+>       const handleRefillMedication = async (medId) => {
+>         try {
+>           const res = await fetch(`${API_BASE}/api/medications/${medId}/refill`, {
+>             method: "POST"
+>           });
+>           if (res.ok) {
+>             refreshPatientData(selectedPatientId);
+>           }
+>         } catch (e) {
+>           console.error(e);
+>           alert("Failed to refill medication.");
+>         }
+>       };
+> 
+558,559c647
+<           fetchTodaySchedule(selectedPatientId);
+<           fetchAdherenceSummary(selectedPatientId);
+---
+>           refreshPatientData(selectedPatientId);
+593c681
+<         } catch (e) {
+---
+>           } catch (e) {
+604a693,728
+>       const getCalendarDays = () => {
+>         const days = [];
+>         const today = new Date();
+>         for (let i = 29; i >= 0; i--) {
+>           const d = new Date();
+>           d.setDate(today.getDate() - i);
+>           const dateStr = d.toISOString().split("T")[0];
+>           
+>           // Filter logs on this date
+>           const dateLogs = adherenceHistory.filter(l => l.scheduled_time.startsWith(dateStr));
+>           
+>           let status = "none";
+>           if (dateLogs.length > 0) {
+>             const hasMissed = dateLogs.some(l => l.status === "Missed");
+>             const hasLate = dateLogs.some(l => l.status === "Late");
+>             const hasTaken = dateLogs.some(l => l.status === "Taken");
+>             
+>             if (hasMissed && !hasTaken && !hasLate) {
+>               status = "missed";
+>             } else if (hasMissed || hasLate) {
+>               status = "late";
+>             } else {
+>               status = "taken";
+>             }
+>           }
+>           
+>           days.push({
+>             date: dateStr,
+>             formattedDate: d.toLocaleDateString([], { month: "short", day: "numeric" }),
+>             status,
+>             logs: dateLogs
+>           });
+>         }
+>         return days;
+>       };
+> 
+723a848,849
+>                 <VoiceWaveform isListening={isListening} />
+> 
+1010a1137,1291
+>             </div>
+> 
+>             {/* Visual Digital Pill Cabinet */}
+>             <div className="card" style={{ marginTop: "2rem" }}>
+>               <h2 style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--primary)" }}>
+>                 💊 Digital Pill Cabinet
+>               </h2>
+>               <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", marginBottom: "1.5rem" }}>
+>                 Interactive smart cabinet showing medicine stock levels. Doses automatically decrement when marked taken.
+>               </p>
+>               
+>               {medications.length === 0 ? (
+>                 <div style={{ textAlign: "center", padding: "3rem", border: "2px dashed var(--border)", borderRadius: "12px", color: "var(--text-secondary)" }}>
+>                   No medications registered. Add a medication above to stock your pill cabinet.
+>                 </div>
+>               ) : (
+>                 <div style={{
+>                   display: "grid",
+>                   gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+>                   gap: "2rem",
+>                   padding: "1.5rem",
+>                   background: "rgba(15, 23, 42, 0.6)",
+>                   borderRadius: "16px",
+>                   border: "1px solid var(--border)",
+>                   boxShadow: "inset 0 4px 12px rgba(0,0,0,0.5)"
+>                 }}>
+>                   {medications.map((m, idx) => {
+>                     const ratio = m.remaining_doses / m.total_doses;
+>                     const percent = Math.round(ratio * 100);
+>                     const isLow = m.remaining_doses <= 6;
+>                     
+>                     // Assign color gradient based on remaining capacity
+>                     let liquidColor = "linear-gradient(180deg, #10b981 0%, #047857 100%)"; // Emerald green
+>                     if (percent <= 20) {
+>                       liquidColor = "linear-gradient(180deg, #ef4444 0%, #b91c1c 100%)"; // Red
+>                     } else if (percent <= 50) {
+>                       liquidColor = "linear-gradient(180deg, #f59e0b 0%, #b45309 100%)"; // Amber/yellow
+>                     }
+> 
+>                     return (
+>                       <div key={idx} style={{
+>                         display: "flex",
+>                         flexDirection: "column",
+>                         alignItems: "center",
+>                         background: "rgba(30, 41, 59, 0.4)",
+>                         padding: "1.5rem 1rem",
+>                         borderRadius: "12px",
+>                         border: "1px solid var(--border)",
+>                         position: "relative"
+>                       }}>
+>                         {isLow && (
+>                           <span style={{
+>                             position: "absolute",
+>                             top: "-10px",
+>                             right: "10px",
+>                             background: "#ef4444",
+>                             color: "white",
+>                             fontSize: "0.75rem",
+>                             fontWeight: "bold",
+>                             padding: "0.2rem 0.5rem",
+>                             borderRadius: "20px",
+>                             border: "1px solid #f87171",
+>                             boxShadow: "0 0 10px rgba(239, 68, 68, 0.5)"
+>                           }}>
+>                             LOW STOCK
+>                           </span>
+>                         )}
+> 
+>                         {/* 2D/3D Glass Bottle Shape */}
+>                         <div style={{
+>                           width: "70px",
+>                           height: "120px",
+>                           border: "3px solid rgba(255, 255, 255, 0.2)",
+>                           borderRadius: "12px 12px 6px 6px",
+>                           position: "relative",
+>                           background: "rgba(255, 255, 255, 0.05)",
+>                           boxShadow: "0 8px 32px 0 rgba(31, 38, 135, 0.37), inset 0 0 10px rgba(255,255,255,0.1)",
+>                           display: "flex",
+>                           flexDirection: "column",
+>                           justifyContent: "flex-end",
+>                           overflow: "hidden",
+>                           marginBottom: "1rem"
+>                         }}>
+>                           {/* Bottle Cap */}
+>                           <div style={{
+>                             width: "40px",
+>                             height: "10px",
+>                             background: "rgba(255, 255, 255, 0.3)",
+>                             position: "absolute",
+>                             top: "0",
+>                             left: "15px",
+>                             borderRadius: "3px 3px 0 0",
+>                             borderBottom: "2px solid rgba(0,0,0,0.2)"
+>                           }}></div>
+> 
+>                           {/* Label */}
+>                           <div style={{
+>                             width: "50px",
+>                             height: "45px",
+>                             background: "rgba(255, 255, 255, 0.95)",
+>                             color: "#0f172a",
+>                             position: "absolute",
+>                             top: "35px",
+>                             left: "7px",
+>                             borderRadius: "4px",
+>                             zIndex: "10",
+>                             display: "flex",
+>                             flexDirection: "column",
+>                             alignItems: "center",
+>                             justifyContent: "center",
+>                             fontSize: "0.65rem",
+>                             fontWeight: "bold",
+>                             textAlign: "center",
+>                             padding: "2px",
+>                             boxShadow: "0 2px 4px rgba(0,0,0,0.2)"
+>                           }}>
+>                             <span style={{ fontSize: "0.55rem", color: "#475569", textTransform: "uppercase" }}>{m.dosage}</span>
+>                             <span style={{ color: "#0f172a", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", width: "100%" }}>{m.name}</span>
+>                           </div>
+> 
+>                           {/* Fill Fluid */}
+>                           <div style={{
+>                             width: "100%",
+>                             height: `${percent}%`,
+>                             background: liquidColor,
+>                             transition: "height 0.8s cubic-bezier(0.4, 0, 0.2, 1)",
+>                             opacity: "0.85",
+>                             borderRadius: "0 0 3px 3px"
+>                           }}></div>
+>                         </div>
+> 
+>                         <strong style={{ fontSize: "1.1rem", marginBottom: "0.25rem" }}>{m.name}</strong>
+>                         <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "1rem" }}>
+>                           {m.remaining_doses} / {m.total_doses} doses left ({percent}%)
+>                         </span>
+> 
+>                         <button 
+>                           className="btn btn-secondary btn-sm" 
+>                           style={{ 
+>                             width: "100%", 
+>                             minHeight: "34px", 
+>                             fontSize: "0.85rem",
+>                             borderColor: isLow ? "#ef4444" : "var(--border)",
+>                             background: isLow ? "rgba(239, 68, 68, 0.1)" : "transparent",
+>                             color: isLow ? "#f87171" : "var(--text-main)"
+>                           }}
+>                           onClick={() => handleRefillMedication(m.id)}
+>                         >
+>                           🔄 Refill Bottle
+>                         </button>
+>                       </div>
+>                     );
+>                   })}
+>                 </div>
+>               )}
+1095c1376,1454
+<                     <div style={{ marginTop: "2rem", background: "rgba(15, 23, 42, 0.4)", padding: "1.5rem", borderRadius: "8px", border: "1px solid var(--border)" }}>
+---
+>                     {/* 30-Day Compliance Calendar Grid */}
+>                     <div style={{ marginTop: "2.5rem" }}>
+>                       <h3 style={{ fontSize: "1.2rem", color: "var(--primary)", display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+>                         🗓️ 30-Day Compliance Heatmap
+>                       </h3>
+>                       <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: "1rem" }}>
+>                         Overview of medication intake history. Hover over a day block to see logged status and timing.
+>                       </p>
+>                       
+>                       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", background: "rgba(15, 23, 42, 0.4)", padding: "1.5rem", borderRadius: "12px", border: "1px solid var(--border)", justifyContent: "center" }}>
+>                         {getCalendarDays().map((day, idx) => {
+>                           let color = "rgba(148, 163, 184, 0.15)"; // default/none (grey)
+>                           let borderStyle = "1px solid var(--border)";
+>                           let titleText = `${day.formattedDate}: No schedules logged`;
+>                           
+>                           if (day.status === "taken") {
+>                             color = "rgba(16, 185, 129, 0.2)"; // Emerald-500 light
+>                             borderStyle = "1px solid #10b981";
+>                             titleText = `${day.formattedDate}: All doses Taken!`;
+>                           } else if (day.status === "late") {
+>                             color = "rgba(245, 158, 11, 0.2)"; // Amber-500 light
+>                             borderStyle = "1px solid #f59e0b";
+>                             titleText = `${day.formattedDate}: Late or partially missed`;
+>                           } else if (day.status === "missed") {
+>                             color = "rgba(239, 68, 68, 0.2)"; // Red-500 light
+>                             borderStyle = "1px solid #ef4444";
+>                             titleText = `${day.formattedDate}: Doses Missed!`;
+>                           }
+>                           
+>                           if (day.logs.length > 0) {
+>                             titleText += ` (${day.logs.map(l => `${l.medication_name}: ${l.status}`).join(", ")})`;
+>                           }
+>                           
+>                           return (
+>                             <div 
+>                               key={idx}
+>                               style={{ 
+>                                 width: "38px", 
+>                                 height: "38px", 
+>                                 borderRadius: "8px", 
+>                                 background: color, 
+>                                 border: borderStyle,
+>                                 cursor: "pointer",
+>                                 position: "relative",
+>                                 display: "flex",
+>                                 alignItems: "center",
+>                                 justifyContent: "center",
+>                                 fontSize: "0.75rem",
+>                                 fontWeight: "bold",
+>                                 color: day.status !== "none" ? "var(--text-main)" : "var(--text-secondary)",
+>                                 transition: "transform 0.2s"
+>                               }}
+>                               title={titleText}
+>                               onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
+>                               onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+>                             >
+>                               <span>{idx + 1}</span>
+>                             </div>
+>                           );
+>                         })}
+>                       </div>
+>                       
+>                       <div style={{ display: "flex", gap: "1.5rem", marginTop: "1rem", fontSize: "0.8rem", color: "var(--text-secondary)", justifyContent: "center" }}>
+>                         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+>                           <span style={{ width: "12px", height: "12px", borderRadius: "3px", background: "rgba(16, 185, 129, 0.2)", border: "1px solid #10b981", display: "inline-block" }}></span> All Taken
+>                         </div>
+>                         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+>                           <span style={{ width: "12px", height: "12px", borderRadius: "3px", background: "rgba(245, 158, 11, 0.2)", border: "1px solid #f59e0b", display: "inline-block" }}></span> Late / Partial
+>                         </div>
+>                         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+>                           <span style={{ width: "12px", height: "12px", borderRadius: "3px", background: "rgba(239, 68, 68, 0.2)", border: "1px solid #ef4444", display: "inline-block" }}></span> Missed
+>                         </div>
+>                         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+>                           <span style={{ width: "12px", height: "12px", borderRadius: "3px", background: "rgba(148, 163, 184, 0.15)", border: "1px solid var(--border)", display: "inline-block" }}></span> No Log
+>                         </div>
+>                       </div>
+>                     </div>
+> 
+>                     <div style={{ marginTop: "2rem", background: "rgba(15, 23, 42, 0.4)", padding: "1.5rem", borderRadius: "12px", border: "1px solid var(--border)" }}>
+1262a1622
+>     console.log("Locating root container...");
+1263a1624
+>     console.log("Root container found:", container);
+1264a1626
+>     console.log("React Root created, rendering App...");

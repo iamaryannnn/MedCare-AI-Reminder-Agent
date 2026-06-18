@@ -96,6 +96,8 @@ class MedicationResponse(BaseModel):
     dosage: str
     frequency: str
     timing_constraint: str
+    remaining_doses: int
+    total_doses: int
     schedules: List[str]
     class Config:
         from_attributes = True
@@ -107,6 +109,8 @@ class MedicationDetailResponse(BaseModel):
     dosage: str
     frequency: str
     timing_constraint: str
+    remaining_doses: int
+    total_doses: int
     class Config:
         from_attributes = True
 
@@ -228,7 +232,9 @@ def add_medication(med: MedicationCreate, db: Session = Depends(get_db)):
             name=med.name,
             dosage=med.dosage,
             frequency=med.frequency,
-            timing_constraint=med.timing_constraint
+            timing_constraint=med.timing_constraint,
+            remaining_doses=30,
+            total_doses=30
         )
         db.add(db_med)
         db.commit()
@@ -283,6 +289,8 @@ def add_medication(med: MedicationCreate, db: Session = Depends(get_db)):
             dosage=db_med.dosage,
             frequency=db_med.frequency,
             timing_constraint=db_med.timing_constraint,
+            remaining_doses=db_med.remaining_doses,
+            total_doses=db_med.total_doses,
             schedules=schedules_list
         )
 
@@ -298,6 +306,15 @@ def delete_medication(med_id: int, db: Session = Depends(get_db)):
     db.delete(db_med)
     db.commit()
     return {"message": "Medication deleted successfully"}
+
+@app.post("/api/medications/{med_id}/refill")
+def refill_medication(med_id: int, db: Session = Depends(get_db)):
+    db_med = db.query(models.Medication).filter(models.Medication.id == med_id).first()
+    if not db_med:
+        raise HTTPException(status_code=404, detail="Medication not found")
+    db_med.remaining_doses = db_med.total_doses
+    db.commit()
+    return {"message": "Medication refilled successfully", "remaining_doses": db_med.remaining_doses}
 
 
 # 3. Schedule & Today's Intake Tracking
@@ -367,10 +384,19 @@ def log_adherence_event(log_data: AdherenceLogCreate, db: Session = Depends(get_
         )
         db.add(log)
 
+    previous_status = log.status
     log.status = log_data.status
     log.logged_time = datetime.now().isoformat()
     log.notes = log_data.notes
     db.commit()
+
+    if log_data.status in ["Taken", "Late"] and previous_status not in ["Taken", "Late"]:
+        schedule = db.query(models.Schedule).filter(models.Schedule.id == log_data.schedule_id).first()
+        if schedule and schedule.medication:
+            if schedule.medication.remaining_doses > 0:
+                schedule.medication.remaining_doses -= 1
+                db.commit()
+
     db.refresh(log)
     return log
 
@@ -399,6 +425,22 @@ def get_adherence_summary(patient_id: int, db: Session = Depends(get_db)):
         "missed_count": missed,
         "late_count": late
     }
+
+@app.get("/api/patients/{patient_id}/adherence/history")
+def get_adherence_history(patient_id: int, db: Session = Depends(get_db)):
+    logs = db.query(models.AdherenceLog).filter(models.AdherenceLog.patient_id == patient_id).all()
+    # Sort chronologically by date
+    logs.sort(key=lambda x: x.scheduled_time)
+    results = []
+    for l in logs:
+        results.append({
+            "id": l.id,
+            "scheduled_time": l.scheduled_time,
+            "logged_time": l.logged_time,
+            "status": l.status,
+            "medication_name": l.schedule.medication.name if (l.schedule and l.schedule.medication) else "Unknown"
+        })
+    return results
 
 
 # 5. Reminder Messaging & Simulated Notification Dispatch (Trigger Demo)
@@ -566,10 +608,16 @@ def patient_chat_endpoint(patient_id: int, request: ChatMessageRequest, db: Sess
                             )
                             db.add(log)
                         
+                        previous_status = log.status
                         log.status = "Taken"
                         log.logged_time = datetime.now().isoformat()
                         log.notes = "Logged via conversational voice command"
                         db.commit()
+
+                        if previous_status not in ["Taken", "Late"]:
+                            if med_row and med_row.remaining_doses > 0:
+                                med_row.remaining_doses -= 1
+                                db.commit()
                         
                         # Return custom success response
                         lang = patient.language.lower()

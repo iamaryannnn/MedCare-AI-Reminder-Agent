@@ -31,6 +31,8 @@ class Medication(Base):
     dosage = Column(String)  # e.g., "500mg", "1 tablet"
     frequency = Column(String)  # e.g., "Once daily", "Twice daily", "Three times daily"
     timing_constraint = Column(String)  # e.g., "With meals", "Before meals", "Before bed", "Morning", "None"
+    remaining_doses = Column(Integer, default=30)
+    total_doses = Column(Integer, default=30)
 
     patient = relationship("Patient", back_populates="medications")
     schedules = relationship("Schedule", back_populates="medication", cascade="all, delete-orphan")

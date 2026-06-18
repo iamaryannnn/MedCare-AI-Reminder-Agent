@@ -1,7 +1,8 @@
 from database import SessionLocal, Base, engine
 import models
 import schedule_engine
-from datetime import date
+from datetime import date, datetime, timedelta
+import random
 
 def seed_database():
     # Clear existing tables and recreate them
@@ -9,6 +10,7 @@ def seed_database():
     Base.metadata.create_all(bind=engine)
     
     db = SessionLocal()
+    random.seed(42)
     try:
         print("Seeding database with demo patient profiles...")
         
@@ -33,7 +35,9 @@ def seed_database():
             name="Warfarin",
             dosage="5mg",
             frequency="Once daily",
-            timing_constraint="Morning"
+            timing_constraint="Morning",
+            remaining_doses=18,
+            total_doses=30
         )
         db.add(warfarin)
         db.commit()
@@ -61,6 +65,27 @@ def seed_database():
             db.add(sched)
             db.commit()
             db.refresh(sched)
+            
+            # Generate 30 days of historical logs
+            for days_ago in range(30, 0, -1):
+                log_date = (datetime.now() - timedelta(days=days_ago)).date().isoformat()
+                status = random.choices(["Taken", "Late", "Missed"], weights=[80, 10, 10])[0]
+                logged_time = None
+                if status == "Taken":
+                    logged_time = f"{log_date}T{time_slot}:05"
+                elif status == "Late":
+                    logged_time = f"{log_date}T10:45:00"
+                
+                log = models.AdherenceLog(
+                    patient_id=margaret.id,
+                    schedule_id=sched.id,
+                    scheduled_time=f"{log_date}T{time_slot}:00",
+                    status=status,
+                    logged_time=logged_time,
+                    notes="Seeded history"
+                )
+                db.add(log)
+            db.commit()
             
             # Add missed log entry for today (will display on Dashboard)
             today_date = date.today().isoformat()
@@ -94,7 +119,9 @@ def seed_database():
             name="Multivitamins",
             dosage="1 capsule",
             frequency="Once daily",
-            timing_constraint="With meals"
+            timing_constraint="With meals",
+            remaining_doses=28,
+            total_doses=30
         )
         db.add(multivitamins)
         db.commit()
@@ -121,6 +148,27 @@ def seed_database():
             db.add(sched)
             db.commit()
             db.refresh(sched)
+            
+            # Generate 30 days of historical logs
+            for days_ago in range(30, 0, -1):
+                log_date = (datetime.now() - timedelta(days=days_ago)).date().isoformat()
+                status = random.choices(["Taken", "Late", "Missed"], weights=[85, 10, 5])[0]
+                logged_time = None
+                if status == "Taken":
+                    logged_time = f"{log_date}T{time_slot}:10"
+                elif status == "Late":
+                    logged_time = f"{log_date}T14:30:00"
+                
+                log = models.AdherenceLog(
+                    patient_id=vikram.id,
+                    schedule_id=sched.id,
+                    scheduled_time=f"{log_date}T{time_slot}:00",
+                    status=status,
+                    logged_time=logged_time,
+                    notes="Seeded history"
+                )
+                db.add(log)
+            db.commit()
             
             # Add taken log entry for today
             today_date = date.today().isoformat()
